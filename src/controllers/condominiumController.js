@@ -1,0 +1,57 @@
+
+const condominiumModel = require('../models/condominiumModel')
+
+const createCondominium = async (req, res) => {
+  const { name, cnpj, trustee, phone } = req.body;
+
+  await condominiumModel.createCondominium(name, cnpj, trustee, phone)
+
+  res.status(201).json({ message: 'Usuário registrado com sucesso' });
+};
+
+const getAllCondominiuns = async (req, res) => {
+  try {
+    const users = await condominiumModel.getAllCondominiuns();
+
+    res.status(200).json({
+      success: true,
+      count: users.length,
+      data: users,
+    });
+  } catch (error) {
+    console.error('Erro ao buscar usuários:', error);
+    res.status(500).json({ success: false, message: 'Erro ao buscar usuários' });
+  }
+};
+
+const editCondominium = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, cnpj, trustee, phone } = req.body;
+
+    let fieldsToUpdate = {};
+    if (name) fieldsToUpdate.name = name;
+    if (cnpj) fieldsToUpdate.cnpj = cnpj;
+    if (trustee) fieldsToUpdate.trustee = trustee;
+    if (phone) fieldsToUpdate.phone = phone;
+
+    if (Object.keys(fieldsToUpdate).length === 0) {
+      return res.status(400).json({ message: 'Nenhum campo enviado para atualização' });
+    }
+
+    const updated = await condominiumModel.updateCondominium(id, fieldsToUpdate);
+
+    if (!updated) {
+      return res.status(404).json({ message: 'Condomínio não encontrado' });
+    }
+
+    res.status(200).json({ message: 'Condomínio atualizado com sucesso' });
+  } catch (error) {
+    console.error('Erro ao editar condomínio:', error);
+    res.status(500).json({ message: 'Erro ao editar condomínio' });
+  }
+};
+
+
+
+module.exports = { createCondominium, getAllCondominiuns, editCondominium };

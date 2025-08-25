@@ -1,0 +1,22 @@
+
+# Dependências do Node.js
+node_modules
+
+# Arquivos de ambiente
+.env
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Cache do sistema
+.DS_Store
+
+# Cache do editor
+.vscode/
+.idea/
+
+# build (se usar dist ou build)
+dist/
+build/
