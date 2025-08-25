@@ -20,3 +20,5 @@ npm-debug.log*
 # build (se usar dist ou build)
 dist/
 build/
+
+uploads/
