@@ -1,10 +1,28 @@
 const db = require('../config/db');
 
-
-
 const createService = async (user_id, condominium_id, description, title, type, files ) => {
     try {
         const result = await db.execute('INSERT INTO logs (user_id, condominium_id, description, title, type, files ) VALUES (?, ?, ?, ?, ?, ?)', [user_id, condominium_id, description, title, type, JSON.stringify(files), ])
+        return result 
+    } catch (error) {
+        console.error('Erro ao registrar serviço:', error);
+        throw error;
+    }
+}
+
+const createServiceType = async (name) => {
+    try {
+        const result = await db.execute('INSERT INTO services_type ( name ) VALUES (?)', [ name ])
+        return result 
+    } catch (error) {
+        console.error('Erro ao registrar serviço:', error);
+        throw error;
+    }
+}
+
+const createServiceSubType = async (name, id_services_type) => {
+    try {
+        const result = await db.execute('INSERT INTO sub_services_type ( name, id_services_type ) VALUES (?, ?)', [ name, id_services_type ])
         return result 
     } catch (error) {
         console.error('Erro ao registrar serviço:', error);
@@ -91,4 +109,4 @@ const deleteService = async (logId) => {
 
 
 
-module.exports = { createService, getAllServices, deleteService }
+module.exports = { createService, createServiceType, createServiceSubType, getAllServices, deleteService }

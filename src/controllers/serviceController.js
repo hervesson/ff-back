@@ -9,6 +9,22 @@ const createService = async (req, res) => {
   res.status(201).json({ message: 'Serviço registrado com sucesso' });
 };
 
+const createServiceType = async (req, res) => {
+  const { name } = req.body;
+
+  await serviceModel.createServiceType(name)
+
+  res.status(201).json({ message: 'Tipo de servico registrado com sucesso' });
+};
+
+const createServiceSubType = async (req, res) => {
+  const { name, id_services_type } = req.body;
+
+  await serviceModel.createServiceSubType(name, id_services_type)
+
+  res.status(201).json({ message: 'Sub tipo de servico registrado com sucesso' });
+};
+
 const getAllServices = async (req, res) => {
   const { condominium_id, type, startDate, endDate } = req.query;
   try {
@@ -41,4 +57,4 @@ const deleteService = async (req, res) => {
 
 
 
-module.exports = { createService, getAllServices, deleteService };
+module.exports = { createService, createServiceType, createServiceSubType, getAllServices, deleteService };

@@ -13,6 +13,16 @@ router.post('/create-service',
     serviceController.createService,
 );
 
+router.post('/create-service-type',
+    serviceMiddleware.validateFieldServiceTypeName,
+    serviceController.createServiceType,
+);
+
+router.post('/create-service-subtype',
+    serviceMiddleware.validateFieldServiceTypeId,
+    serviceController.createServiceSubType,
+);
+
 router.get('/allServices',
     serviceController.getAllServices
 );

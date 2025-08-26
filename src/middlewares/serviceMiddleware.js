@@ -70,5 +70,34 @@ const validateFieldType = (request, response, next) => {
     next();
 };
 
+const validateFieldServiceTypeName = (request, response, next) => {
+    const { body } = request;
 
-module.exports = { validateFieldUserId, validateFieldCondominiumId, validateFieldDescription, validateFieldTitle, validateFieldType };
+    if (body.name === undefined) {
+        return response.status(400).json({ message: 'O campo "name" e obrigatório!' });
+    }
+
+    if (body.name === '') {
+        return response.status(400).json({ message: 'O campo "name" não pode ser vazio!' });
+    }
+
+    next();
+};
+
+const validateFieldServiceTypeId = (request, response, next) => {
+    const { body } = request;
+
+    if (body.id_services_type === undefined) {
+        return response.status(400).json({ message: 'O campo "id_services_type" e obrigatório!' });
+    }
+
+    if (body.id_services_type === '') {
+        return response.status(400).json({ message: 'O campo "id_services_type" não pode ser vazio!' });
+    }
+
+    next();
+};
+
+
+
+module.exports = { validateFieldUserId, validateFieldCondominiumId, validateFieldDescription, validateFieldTitle, validateFieldType, validateFieldServiceTypeName, validateFieldServiceTypeId };
