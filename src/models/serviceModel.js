@@ -20,6 +20,16 @@ const createServiceType = async (name) => {
     }
 }
 
+const getAllServicesType = async () => {
+  try {
+    const [result] = await db.execute('SELECT * FROM services_type');
+    return result; 
+  } catch (error) {
+    console.error('Erro ao buscar usuários:', error);
+    throw error;
+  }
+};
+
 const createServiceSubType = async (name, id_services_type) => {
     try {
         const result = await db.execute('INSERT INTO sub_services_type ( name, id_services_type ) VALUES (?, ?)', [ name, id_services_type ])
@@ -29,6 +39,20 @@ const createServiceSubType = async (name, id_services_type) => {
         throw error;
     }
 }
+
+const getAllServicesSubType = async (id_services_type) => {
+  try {
+    const [result] = await db.execute(
+      'SELECT * FROM sub_services_type WHERE id_services_type = ?',
+      [id_services_type]
+    );
+    return result;
+  } catch (error) {
+    console.error('Erro ao buscar sub serviços:', error);
+    throw error;
+  }
+};
+
 
 const getAllServices = async (condominium_id, type, startDate, endDate) => {
   try {
@@ -109,4 +133,4 @@ const deleteService = async (logId) => {
 
 
 
-module.exports = { createService, createServiceType, createServiceSubType, getAllServices, deleteService }
+module.exports = { createService, createServiceType, getAllServicesType, createServiceSubType, getAllServicesSubType, getAllServices, deleteService }

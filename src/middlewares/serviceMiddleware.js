@@ -99,5 +99,4 @@ const validateFieldServiceTypeId = (request, response, next) => {
 };
 
 
-
 module.exports = { validateFieldUserId, validateFieldCondominiumId, validateFieldDescription, validateFieldTitle, validateFieldType, validateFieldServiceTypeName, validateFieldServiceTypeId };

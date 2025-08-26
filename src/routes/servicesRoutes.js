@@ -18,9 +18,18 @@ router.post('/create-service-type',
     serviceController.createServiceType,
 );
 
+router.get('/allServicesType',
+    serviceController.getAllServicesType,
+);
+
 router.post('/create-service-subtype',
     serviceMiddleware.validateFieldServiceTypeId,
     serviceController.createServiceSubType,
+);
+
+router.get('/allServicesSubType',
+    serviceMiddleware.validateFieldServiceTypeId,
+    serviceController.getAllServicesSubType,
 );
 
 router.get('/allServices',
