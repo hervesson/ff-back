@@ -1,14 +1,35 @@
 const db = require('../config/db');
 
-const createService = async (user_id, condominium_id, description, title, type, files ) => {
+const createService = async (user_id, condominium_id, sub_services_id, description, title, services_type_id, files ) => {
     try {
-        const result = await db.execute('INSERT INTO logs (user_id, condominium_id, description, title, type, files ) VALUES (?, ?, ?, ?, ?, ?)', [user_id, condominium_id, description, title, type, JSON.stringify(files), ])
+        const result = await db.execute('INSERT INTO logs (user_id, condominium_id, sub_services_id,  description, title, services_type_id, files ) VALUES (?, ?, ?, ?, ?, ?, ?)', [user_id, condominium_id, sub_services_id, description, title, services_type_id, JSON.stringify(files), ])
         return result 
     } catch (error) {
         console.error('Erro ao registrar serviço:', error);
         throw error;
     }
 }
+
+const serviceAlreadyExists = async (service) => {
+    try {
+        const [result] = await db.execute('SELECT name FROM services_type WHERE name = ?', [service]);
+        return result.length > 0
+    } catch (error) {
+        console.error('Erro ao verificar usuário:', error);
+        throw error;
+    }
+}
+
+const subServiceAlreadyExists = async (service) => {
+    try {
+        const [result] = await db.execute('SELECT name FROM sub_services_type WHERE name = ?', [service]);
+        return result.length > 0
+    } catch (error) {
+        console.error('Erro ao verificar usuário:', error);
+        throw error;
+    }
+}
+
 
 const createServiceType = async (name) => {
     try {
@@ -54,7 +75,7 @@ const getAllServicesSubType = async (id_services_type) => {
 };
 
 
-const getAllServices = async (condominium_id, type, startDate, endDate) => {
+const getAllServices = async (condominium_id, services_type_id, sub_services_id, user_id, startDate, endDate) => {
   try {
     let query = `
       SELECT 
@@ -62,7 +83,11 @@ const getAllServices = async (condominium_id, type, startDate, endDate) => {
         l.title,
         l.description,
         l.files,
-        l.type,
+        l.services_type_id,
+        st.name AS type_name,                 -- nome do tipo
+        l.sub_services_id,
+        l.user_id,
+        sst.name AS sub_type_name,            -- nome do sub tipo (pode vir NULL)
         l.created_at,
         u.id AS user_id,
         u.name AS user_name,
@@ -75,8 +100,11 @@ const getAllServices = async (condominium_id, type, startDate, endDate) => {
       FROM logs l
       LEFT JOIN users u ON l.user_id = u.id
       LEFT JOIN condominium c ON l.condominium_id = c.id
+      LEFT JOIN services_type st ON l.services_type_id = st.id
+      LEFT JOIN sub_services_type sst ON l.sub_services_id = sst.id
       WHERE 1=1
     `;
+
 
     const params = [];
 
@@ -85,9 +113,19 @@ const getAllServices = async (condominium_id, type, startDate, endDate) => {
       params.push(condominium_id);
     }
 
-    if (type) {
-      query += ' AND l.type = ?';
-      params.push(type);
+    if (services_type_id) {
+      query += ' AND l.services_type_id = ?';
+      params.push(services_type_id);
+    }
+
+    if (sub_services_id) {
+      query += ' AND l.sub_services_id = ?';
+      params.push(sub_services_id);
+    }
+
+    if (user_id) {
+      query += ' AND l.user_id = ?';
+      params.push(user_id);
     }
 
     if (startDate) {
@@ -104,8 +142,6 @@ const getAllServices = async (condominium_id, type, startDate, endDate) => {
 
     const [rows] = await db.execute(query, params);
 
-    // transforma files JSON em array
-
     return rows;
 
   } catch (error) {
@@ -113,8 +149,6 @@ const getAllServices = async (condominium_id, type, startDate, endDate) => {
     throw error;
   }
 };
-
-
 
 const deleteService = async (logId) => {
   try {
@@ -129,8 +163,14 @@ const deleteService = async (logId) => {
   }
 };
 
-
-
-
-
-module.exports = { createService, createServiceType, getAllServicesType, createServiceSubType, getAllServicesSubType, getAllServices, deleteService }
+module.exports = { 
+  createService, 
+  createServiceType, 
+  getAllServicesType, 
+  createServiceSubType, 
+  getAllServicesSubType, 
+  subServiceAlreadyExists,
+  getAllServices, 
+  deleteService, 
+  serviceAlreadyExists 
+}
