@@ -2,9 +2,9 @@
 const serviceModel = require('../models/serviceModel')
 
 const createService = async (req, res) => {
-  const { user_id, condominium_id, sub_services_id, description, title, services_type_id, files } = req.body;
+  const { user_id, condominium_id, sub_services_id, description, title, services_type_id, creationDate, files } = req.body;
 
-  await serviceModel.createService(user_id, condominium_id, sub_services_id, description, title, services_type_id, files)
+  await serviceModel.createService(user_id, condominium_id, sub_services_id, description, title, services_type_id, creationDate, files)
 
   res.status(201).json({ message: 'Serviço registrado com sucesso' });
 };

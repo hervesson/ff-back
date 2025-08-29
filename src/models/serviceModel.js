@@ -1,8 +1,8 @@
 const db = require('../config/db');
 
-const createService = async (user_id, condominium_id, sub_services_id, description, title, services_type_id, files ) => {
+const createService = async (user_id, condominium_id, sub_services_id, description, title, services_type_id, creationDate, files ) => {
     try {
-        const result = await db.execute('INSERT INTO logs (user_id, condominium_id, sub_services_id,  description, title, services_type_id, files ) VALUES (?, ?, ?, ?, ?, ?, ?)', [user_id, condominium_id, sub_services_id, description, title, services_type_id, JSON.stringify(files), ])
+        const result = await db.execute('INSERT INTO logs (user_id, condominium_id, sub_services_id,  description, title, services_type_id, creationDate, files ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [user_id, condominium_id, sub_services_id, description, title, services_type_id, creationDate, JSON.stringify(files), ])
         return result 
     } catch (error) {
         console.error('Erro ao registrar serviço:', error);
@@ -89,6 +89,7 @@ const getAllServices = async (condominium_id, services_type_id, sub_services_id,
         l.user_id,
         sst.name AS sub_type_name,            -- nome do sub tipo (pode vir NULL)
         l.created_at,
+        l.creationDate,
         u.id AS user_id,
         u.name AS user_name,
         u.email AS user_email,

@@ -7,4 +7,8 @@ router.get('/allUsers',
     userController.getAllUsers
 );
 
+router.get('/allUsers',
+    userController.getAllUsers
+);
+
 module.exports = router;

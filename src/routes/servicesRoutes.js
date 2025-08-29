@@ -6,9 +6,8 @@ const serviceMiddleware = require ('../middlewares/serviceMiddleware')
 
 router.post('/create-service',
     serviceMiddleware.validateFieldUserId, 
-    serviceMiddleware.validateFieldCondominiumId, 
     serviceMiddleware.validateFieldDescription, 
-    serviceMiddleware.validateFieldTitle,
+    serviceMiddleware.validateFieldCreationDate,
     serviceMiddleware.validateFieldType,
     serviceController.createService,
 );

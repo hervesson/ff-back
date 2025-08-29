@@ -14,20 +14,6 @@ const validateFieldUserId = (request, response, next) => {
     next();
 };
 
-const validateFieldCondominiumId = (request, response, next) => {
-    const { body } = request;
-
-    if (body.condominium_id === undefined) {
-        return response.status(400).json({ message: 'O campo "condominio" e obrigatório!' });
-    }
-
-    if (body.condominium_id === '') {
-        return response.status(400).json({ message: 'O campo "condominio" não pode ser vazio!' });
-    }
-
-    next();
-};
-
 const validateFielServiceTypeId = (request, response, next) => {
   const { id_services_type } = request.params;
 
@@ -60,15 +46,15 @@ const validateFieldDescription = (request, response, next) => {
     next();
 };
 
-const validateFieldTitle = (request, response, next) => {
+const validateFieldCreationDate = (request, response, next) => {
     const { body } = request;
 
-    if (body.title === undefined) {
-        return response.status(400).json({ message: 'O campo "título" e obrigatório!' });
+    if (body.creationDate === undefined) {
+        return response.status(400).json({ message: 'O campo "data de criação" e obrigatório!' });
     }
 
-    if (body.title === '') {
-        return response.status(400).json({ message: 'O campo "título" não pode ser vazio!' });
+    if (body.creationDate === '') {
+        return response.status(400).json({ message: 'O campo "data de criação" não pode ser vazio!' });
     }
 
     next();
@@ -156,11 +142,10 @@ const subServiceValidation = async (request, response, next) => {
 
 module.exports = { 
     validateFieldUserId, 
-    validateFieldCondominiumId, 
     validateFielServiceTypeId,
     validateFieldDescription, 
     subServiceValidation,
-    validateFieldTitle, 
+    validateFieldCreationDate, 
     validateFieldType, 
     validateFieldServiceTypeName, 
     validateFieldServiceTypeId, 
