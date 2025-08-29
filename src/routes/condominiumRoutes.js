@@ -6,7 +6,6 @@ const condominiumMiddleware = require ('../middlewares/condominiumMiddleware')
 
 router.post('/create-condominium',
     condominiumMiddleware.validateFieldName, 
-    condominiumMiddleware.validateFieldCnpj, 
     condominiumMiddleware.validateFieldTrustee, 
     condominiumMiddleware.validateFieldPhone,
     condominiumController.createCondominium,

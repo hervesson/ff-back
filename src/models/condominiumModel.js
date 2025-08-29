@@ -12,13 +12,14 @@ const createCondominium = async (name, cnpj, trustee, phone) => {
 
 const getAllCondominiuns = async () => {
   try {
-    const [result] = await db.execute('SELECT * FROM condominium');
-    return result; 
+    const [result] = await db.execute('SELECT * FROM condominium ORDER BY name ASC');
+    return result;
   } catch (error) {
-    console.error('Erro ao buscar usuários:', error);
+    console.error('Erro ao buscar condomínios:', error);
     throw error;
   }
 };
+
 
 const updateCondominium = async (id, fields) => {
   try {
