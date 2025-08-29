@@ -10,19 +10,20 @@ const register = async (email, name, profile_id,  hash) => {
     }
 }
 
-const updatePassword = async (email, newPassword) => {
+const updatePassword = async (name, email, newPassword) => {
   try {
     const [result] = await db.execute(
-      'UPDATE users SET password = ? WHERE email = ?',
-      [newPassword, email]
+      'UPDATE users SET name = ?, password = ? WHERE email = ?',
+      [name, newPassword, email]
     );
 
     return result.affectedRows > 0; // true se atualizou
   } catch (error) {
-    console.error('Erro ao atualizar senha:', error);
+    console.error('Erro ao atualizar usuário:', error);
     throw error;
   }
 };
+
 
 
 module.exports = { register, updatePassword }

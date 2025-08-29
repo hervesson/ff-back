@@ -35,12 +35,12 @@ const login = async (req, res) => {
 
 const editPassword = async (req, res) => {
   try {
-    const { email, newPassword } = req.body;
+    const { name, email, newPassword } = req.body;
 
     // Aqui você deve fazer hash da senha antes de salvar:
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    const updated = await authModel.updatePassword(email, hashedPassword);
+    const updated = await authModel.updatePassword(name, email, hashedPassword);
 
     if (!updated) {
       return res.status(404).json({ message: 'Usuário não encontrado' });
