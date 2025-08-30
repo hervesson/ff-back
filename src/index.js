@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const app = express();
 
+// Middlewares
 app.use(cors());
 app.use(express.json());
 
@@ -18,7 +19,7 @@ app.get("/", (req, res) => {
   res.send("API online 🚀");
 });
 
-// Endpoint de healthcheck (para o EasyPanel, monitoramento, etc.)
+// Endpoint de healthcheck para EasyPanel ou monitoramento
 app.get("/health", (req, res) => {
   res.status(200).json({
     status: "ok",
@@ -34,7 +35,7 @@ app.use('/condominium', condominiumRoutes);
 app.use('/service', servicesRoutes);
 app.use('/files', uploadRoutes);
 
-// Porta dinâmica
+// Porta dinâmica do EasyPanel/Heroku
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);

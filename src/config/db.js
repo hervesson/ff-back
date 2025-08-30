@@ -3,7 +3,7 @@ const mysql = require('mysql2/promise');
 
 const db = mysql.createPool({
   host: process.env.DB_HOST,
-  user: process.env.DB_USER,
+  user: process.env.DB_USER || process.env.DB_USERNAME,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   port: process.env.DB_PORT || 3306,
@@ -19,7 +19,7 @@ const db = mysql.createPool({
     connection.release();
   } catch (err) {
     console.error('❌ Erro inicial ao conectar ao MySQL:', err.message);
-    // não dá process.exit(1), deixa o pool tentar de novo automaticamente
+    // não mata o processo; o pool tentará novas conexões
   }
 })();
 
