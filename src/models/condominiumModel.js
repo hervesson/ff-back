@@ -10,16 +10,25 @@ const createCondominium = async (name, cnpj, trustee, phone) => {
     }
 }
 
-const getAllCondominiuns = async () => {
+const getAllCondominiuns = async (searchTerm = '') => {
   try {
-    const [result] = await db.execute('SELECT * FROM condominium ORDER BY name ASC');
+    let query = 'SELECT * FROM condominium';
+    let params = [];
+
+    if (searchTerm) {
+      query += ' WHERE name LIKE ?';
+      params.push(`%${searchTerm}%`);
+    }
+
+    query += ' ORDER BY name ASC';
+
+    const [result] = await db.execute(query, params);
     return result;
   } catch (error) {
     console.error('Erro ao buscar condomínios:', error);
     throw error;
   }
 };
-
 
 const updateCondominium = async (id, fields) => {
   try {

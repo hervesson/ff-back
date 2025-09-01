@@ -10,19 +10,28 @@ const createCondominium = async (req, res) => {
 };
 
 const getAllCondominiuns = async (req, res) => {
+  // pega o termo de busca da query string, se não vier nada assume string vazia
+  const searchTerm = req.query.search || '';
+
+  console.log(searchTerm)
+
   try {
-    const users = await condominiumModel.getAllCondominiuns();
+    const condominiums = await condominiumModel.getAllCondominiuns(searchTerm);
 
     res.status(200).json({
       success: true,
-      count: users.length,
-      data: users,
+      count: condominiums.length,
+      data: condominiums,
     });
   } catch (error) {
-    console.error('Erro ao buscar usuários:', error);
-    res.status(500).json({ success: false, message: 'Erro ao buscar usuários' });
+    console.error('Erro ao buscar condomínios:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Erro ao buscar condomínios' 
+    });
   }
 };
+
 
 const editCondominium = async (req, res) => {
   try {
