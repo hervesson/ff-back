@@ -20,18 +20,24 @@ const getUser = async (email) => {
     }
 }
 
-const getAllUsers = async () => {
+const getAllUsers = async (searchTerm = '') => {
   try {
-    const [result] = await db.execute('SELECT * FROM users');
-    return result; 
+    let query = 'SELECT * FROM users';
+    let params = [];
+
+    if (searchTerm) {
+      query += ' WHERE name LIKE ?';
+      params.push(`%${searchTerm}%`);
+    }
+
+    query += ' ORDER BY name ASC';
+
+    const [result] = await db.execute(query, params);
+    return result;
   } catch (error) {
     console.error('Erro ao buscar usuários:', error);
     throw error;
   }
 };
-
-
-
-
 
 module.exports = { userAlreadyExists, getUser, getAllUsers }

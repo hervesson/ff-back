@@ -5,8 +5,9 @@ const jwt = require('jsonwebtoken');
 const userModel = require('../models/userModel')
 
 const getAllUsers = async (req, res) => {
+  const searchTerm = req.query.search || '';
   try {
-    const users = await userModel.getAllUsers();
+    const users = await userModel.getAllUsers(searchTerm);
 
     res.status(200).json({
       success: true,

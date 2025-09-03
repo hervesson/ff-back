@@ -41,12 +41,22 @@ const createServiceType = async (name) => {
     }
 }
 
-const getAllServicesType = async () => {
+const getAllServicesType = async (searchTerm = '') => {
   try {
-    const [result] = await db.execute('SELECT * FROM services_type');
-    return result; 
+    let query = 'SELECT * FROM services_type';
+    let params = [];
+
+    if (searchTerm) {
+      query += ' WHERE name LIKE ?';
+      params.push(`%${searchTerm}%`);
+    }
+
+    query += ' ORDER BY name ASC';
+
+    const [result] = await db.execute(query, params);
+    return result;
   } catch (error) {
-    console.error('Erro ao buscar usuários:', error);
+    console.error('Erro ao buscar tipos de serviço:', error);
     throw error;
   }
 };
@@ -61,18 +71,26 @@ const createServiceSubType = async (name, id_services_type) => {
     }
 }
 
-const getAllServicesSubType = async (id_services_type) => {
+const getAllServicesSubType = async (id_services_type, searchTerm = '') => {
   try {
-    const [result] = await db.execute(
-      'SELECT * FROM sub_services_type WHERE id_services_type = ?',
-      [id_services_type]
-    );
+    let query = 'SELECT * FROM sub_services_type WHERE id_services_type = ?';
+    let params = [id_services_type];
+
+    if (searchTerm) {
+      query += ' AND name LIKE ?';
+      params.push(`%${searchTerm}%`);
+    }
+
+    query += ' ORDER BY name ASC';
+
+    const [result] = await db.execute(query, params);
     return result;
   } catch (error) {
     console.error('Erro ao buscar sub serviços:', error);
     throw error;
   }
 };
+
 
 
 const getAllServices = async (condominium_id, services_type_id, sub_services_id, user_id, startDate, endDate) => {

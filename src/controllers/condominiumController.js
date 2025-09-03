@@ -13,8 +13,6 @@ const getAllCondominiuns = async (req, res) => {
   // pega o termo de busca da query string, se não vier nada assume string vazia
   const searchTerm = req.query.search || '';
 
-  console.log(searchTerm)
-
   try {
     const condominiums = await condominiumModel.getAllCondominiuns(searchTerm);
 

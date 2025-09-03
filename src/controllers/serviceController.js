@@ -18,8 +18,10 @@ const createServiceType = async (req, res) => {
 };
 
 const getAllServicesType = async (req, res) => {
+  const searchTerm = req.query.search || '';
+
   try {
-    const servicesType = await serviceModel.getAllServicesType();
+    const servicesType = await serviceModel.getAllServicesType(searchTerm);
 
     res.status(200).json({
       success: true,
@@ -42,8 +44,10 @@ const createServiceSubType = async (req, res) => {
 
 const getAllServicesSubType = async (req, res) => {
   const { id_services_type } = req.params;
+  const searchTerm = req.query.search || '';
+  
   try {
-    const servicesType = await serviceModel.getAllServicesSubType(id_services_type);
+    const servicesType = await serviceModel.getAllServicesSubType(id_services_type, searchTerm);
 
     res.status(200).json({
       success: true,
