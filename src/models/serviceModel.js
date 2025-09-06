@@ -53,13 +53,29 @@ const getAllServicesType = async (searchTerm = '') => {
 
     query += ' ORDER BY name ASC';
 
-    const [result] = await db.execute(query, params);
-    return result;
+    // Busca os serviços principais
+    const [services] = await db.execute(query, params);
+
+    // Busca todos os sub serviços
+    const [subServices] = await db.execute('SELECT * FROM sub_services_type');
+
+    // Junta services + subServices
+    const servicesWithSubs = services.map(service => {
+      return {
+        ...service,
+        sub_services: subServices.filter(
+          sub => sub.id_services_type === service.id
+        )
+      };
+    });
+
+    return servicesWithSubs;
   } catch (error) {
     console.error('Erro ao buscar tipos de serviço:', error);
     throw error;
   }
 };
+
 
 const createServiceSubType = async (name, id_services_type) => {
     try {
@@ -182,6 +198,46 @@ const deleteService = async (logId) => {
   }
 };
 
+const deleteServiceType = async (logId) => {
+  try {
+    const [result] = await db.execute(
+      'DELETE FROM services_type WHERE id = ?',
+      [logId]
+    );
+    return result; 
+  } catch (error) {
+    console.error('Erro ao buscar usuários:', error);
+    throw error;
+  }
+};
+
+const deleteServiceSubType = async (logId) => {
+  try {
+    const [result] = await db.execute(
+      'DELETE FROM sub_services_type WHERE id = ?',
+      [logId]
+    );
+    return result; 
+  } catch (error) {
+    console.error('Erro ao buscar usuários:', error);
+    throw error;
+  }
+};
+
+const updateTypeService = async (name, id) => {
+  try {
+    const [result] = await db.execute(
+      'UPDATE services_type SET name = ? WHERE id = ?',
+      [name, id]
+    );
+
+    return result.affectedRows > 0;
+  } catch (error) {
+    console.error('Erro ao atualizar tipo de serviço:', error);
+    throw error;
+  }
+};
+
 module.exports = { 
   createService, 
   createServiceType, 
@@ -191,5 +247,8 @@ module.exports = {
   subServiceAlreadyExists,
   getAllServices, 
   deleteService, 
-  serviceAlreadyExists 
+  deleteServiceType,
+  deleteServiceSubType,
+  serviceAlreadyExists,
+  updateTypeService
 }

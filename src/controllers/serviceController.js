@@ -89,6 +89,58 @@ const deleteService = async (req, res) => {
   }
 };
 
+const deleteServiceType = async (req, res) => {
+  const logId = req.params.id;
 
+  try {
+    const users = await serviceModel.deleteServiceType(logId);
+    
+    res.status(200).json({ message: 'Tipo de serviço deletado com sucesso' });
+  } catch (error) {
+    console.error('Erro ao deletar log:', error);
+    res.status(500).json({ error: 'Erro ao deletar log', details: error.message });
+  }
+};
 
-module.exports = { createService, createServiceType, getAllServicesType, createServiceSubType, getAllServicesSubType, getAllServices, deleteService };
+const deleteServiceSubType = async (req, res) => {
+  const logId = req.params.id;
+
+  try {
+    const users = await serviceModel.deleteServiceSubType(logId);
+    
+    res.status(200).json({ message: 'Sub tipo de serviço deletado com sucesso' });
+  } catch (error) {
+    console.error('Erro ao deletar log:', error);
+    res.status(500).json({ error: 'Erro ao deletar log', details: error.message });
+  }
+};
+
+const updateTypeService = async (req, res) => {
+  try {
+    const { name, id } = req.body;
+
+    const updated = await serviceModel.updateTypeService(name, id);
+
+    if (!updated) {
+      return res.status(404).json({ message: 'Usuário não encontrado' });
+    }
+
+    res.status(200).json({ message: 'Nome do tipo de sereviço atualizada com sucesso' });
+  } catch (error) {
+    console.error('Erro ao editar senha:', error);
+    res.status(500).json({ message: 'Erro ao editar senha' });
+  }
+};
+
+module.exports = { 
+  createService, 
+  createServiceType, 
+  getAllServicesType, 
+  createServiceSubType, 
+  getAllServicesSubType, 
+  getAllServices, 
+  deleteService, 
+  deleteServiceType, 
+  deleteServiceSubType,
+  updateTypeService
+};

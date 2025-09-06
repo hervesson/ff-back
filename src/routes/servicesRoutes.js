@@ -18,6 +18,10 @@ router.post('/create-service-type',
     serviceController.createServiceType,
 );
 
+router.delete('/services-type/:id', 
+    serviceController.deleteServiceType
+);
+
 router.get('/allServicesType',
     serviceController.getAllServicesType,
 );
@@ -27,6 +31,10 @@ router.post('/create-service-subtype',
     serviceMiddleware.validateFieldServiceTypeName,
     serviceMiddleware.validateFieldServiceTypeId,
     serviceController.createServiceSubType,
+);
+
+router.delete('/services-subtype/:id', 
+    serviceController.deleteServiceSubType
 );
 
 router.get('/allServicesSubType/:id_services_type',
@@ -40,6 +48,10 @@ router.get('/allServices',
 
 router.delete('/services/:id', 
     serviceController.deleteService
+);
+
+router.put('/edit-service-type',
+    serviceController.updateTypeService
 );
 
 module.exports = router;
