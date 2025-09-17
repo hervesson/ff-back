@@ -1,14 +1,51 @@
 const db = require('../config/db');
 
-const createService = async (user_id, condominium_id, sub_services_id, description, title, services_type_id, creationDate, files ) => {
-    try {
-        const result = await db.execute('INSERT INTO logs (user_id, condominium_id, sub_services_id,  description, title, services_type_id, creationDate, files ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [user_id, condominium_id, sub_services_id, description, title, services_type_id, creationDate, JSON.stringify(files), ])
-        return result 
-    } catch (error) {
-        console.error('Erro ao registrar serviço:', error);
-        throw error;
-    }
-}
+const dayjs = require('dayjs');
+const utc = require('dayjs/plugin/utc');
+const timezone = require('dayjs/plugin/timezone');
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const createService = async (
+  user_id,
+  condominium_id,
+  sub_services_id,
+  description,
+  title,
+  services_type_id,
+  creationDate, // recebido no horário local
+  files
+) => {
+  try {
+    // 🔑 converte para UTC antes de salvar
+    const creationDateUtc = dayjs
+      .tz(creationDate, 'America/Sao_Paulo')
+      .utc()
+      .format('YYYY-MM-DD HH:mm:ss');
+
+    const result = await db.execute(
+      `INSERT INTO logs 
+       (user_id, condominium_id, sub_services_id, description, title, services_type_id, creationDate, files) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        user_id,
+        condominium_id,
+        sub_services_id,
+        description,
+        title,
+        services_type_id,
+        creationDateUtc,
+        JSON.stringify(files),
+      ]
+    );
+
+    return result;
+  } catch (error) {
+    console.error('Erro ao registrar serviço:', error);
+    throw error;
+  }
+};
 
 const serviceAlreadyExists = async (service) => {
     try {
