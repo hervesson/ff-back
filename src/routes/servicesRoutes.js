@@ -42,7 +42,7 @@ router.get('/allServicesSubType/:id_services_type',
     serviceController.getAllServicesSubType,
 );
 
-router.get('/allServices',
+router.post('/allServices',
     serviceController.getAllServices
 );
 
