@@ -60,19 +60,43 @@ const getAllServicesSubType = async (req, res) => {
   }
 };
 
+// controller
 const getAllServices = async (req, res) => {
-  const { condominium_id, services_type_id, sub_services_id, user_id, startDate, endDate } = req.query;
+  const { page = 1, limit = 20 } = req.query;
+  const {
+    condominium_id = '',
+    services_type_id = '',
+    sub_services_id = '',
+    user_id = '',
+    startDate = '',
+    endDate = '',
+  } = req.body ?? {};
+
   try {
-    const users = await serviceModel.getAllServices( condominium_id, services_type_id, sub_services_id, user_id, startDate, endDate);
+    const pg = Math.max(parseInt(page, 10) || 1, 1);
+    const sz = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
+
+    const { rows, total } = await serviceModel.getAllServices(
+      condominium_id,
+      services_type_id,
+      sub_services_id,
+      user_id,
+      startDate,
+      endDate,
+      { page: pg, pageSize: sz }
+    );
 
     res.status(200).json({
       success: true,
-      count: users.length,
-      data: users,
+      page: pg,
+      limit: sz,
+      total,
+      totalPages: Math.max(Math.ceil(total / sz), 1),
+      data: rows,
     });
   } catch (error) {
-    console.error('Erro ao buscar usuários:', error);
-    res.status(500).json({ success: false, message: 'Erro ao buscar usuários' });
+    console.error('Erro ao buscar serviços:', error);
+    res.status(500).json({ success: false, message: 'Erro ao buscar serviços' });
   }
 };
 

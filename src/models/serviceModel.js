@@ -107,78 +107,80 @@ const getAllServicesSubType = async (id_services_type, searchTerm = '') => {
   }
 };
 
-
-
-const getAllServices = async (condominium_id, services_type_id, sub_services_id, user_id, startDate, endDate) => {
+// model
+const getAllServices = async (
+  condominium_id,
+  services_type_id,
+  sub_services_id,
+  user_id,
+  startDate,
+  endDate,
+  { page, pageSize }
+) => {
   try {
-    let query = `
+    const filters = [];
+    const params = [];
+    const pushIf = (cond, sql, val) => { if (cond) { filters.push(sql); params.push(val); } };
+
+    // evita '', null, undefined
+    pushIf(condominium_id !== undefined && condominium_id !== '', 'l.condominium_id = ?', condominium_id);
+    pushIf(services_type_id !== undefined && services_type_id !== '', 'l.services_type_id = ?', services_type_id);
+    pushIf(sub_services_id !== undefined && sub_services_id !== '', 'l.sub_services_id = ?', sub_services_id);
+    pushIf(user_id !== undefined && user_id !== '', 'l.user_id = ?', user_id);
+    pushIf(startDate, 'l.created_at >= ?', startDate);
+    pushIf(endDate, 'l.created_at <= ?', endDate);
+
+    const where = filters.length ? 'WHERE ' + filters.join(' AND ') : '';
+
+    // paginação (literal, sem placeholders)
+    const limit  = Math.max(parseInt(pageSize, 10) || 20, 1);
+    const offset = Math.max(((parseInt(page, 10) || 1) - 1) * limit, 0);
+
+    // COUNT
+    const countSql = `SELECT COUNT(*) AS total FROM logs l ${where}`;
+    let countRows;
+    if (params.length > 0) {
+      [countRows] = await db.execute(countSql, params);
+    } else {
+      [countRows] = await db.execute(countSql); // 👈 sem segundo argumento
+    }
+    const total = countRows?.[0]?.total ?? 0;
+
+    // DATA
+    const dataSql = `
       SELECT 
         l.id AS log_id,
         l.title,
         l.description,
         l.files,
         l.services_type_id,
-        st.name AS type_name,                 -- nome do tipo
+        st.name AS type_name,
         l.sub_services_id,
+        sst.name AS sub_type_name,
         l.user_id,
-        sst.name AS sub_type_name,            -- nome do sub tipo (pode vir NULL)
-        l.created_at,
-        l.creationDate,
-        u.id AS user_id,
         u.name AS user_name,
         u.email AS user_email,
-        u.profile_id AS user_profile,
         c.id AS condominium_id,
         c.name AS condominium_name,
-        c.cnpj AS condominium_cnpj,
-        c.phone AS condominium_phone
+        l.created_at,
+        l.creationDate
       FROM logs l
       LEFT JOIN users u ON l.user_id = u.id
       LEFT JOIN condominium c ON l.condominium_id = c.id
       LEFT JOIN services_type st ON l.services_type_id = st.id
       LEFT JOIN sub_services_type sst ON l.sub_services_id = sst.id
-      WHERE 1=1
+      ${where}
+      ORDER BY l.created_at DESC
+      LIMIT ${offset}, ${limit}
     `;
-
-
-    const params = [];
-
-    if (condominium_id) {
-      query += ' AND l.condominium_id = ?';
-      params.push(condominium_id);
+    let rows;
+    if (params.length > 0) {
+      [rows] = await db.execute(dataSql, params);
+    } else {
+      [rows] = await db.execute(dataSql); // 👈 sem segundo argumento
     }
 
-    if (services_type_id) {
-      query += ' AND l.services_type_id = ?';
-      params.push(services_type_id);
-    }
-
-    if (sub_services_id) {
-      query += ' AND l.sub_services_id = ?';
-      params.push(sub_services_id);
-    }
-
-    if (user_id) {
-      query += ' AND l.user_id = ?';
-      params.push(user_id);
-    }
-
-    if (startDate) {
-      query += ' AND l.created_at >= ?';
-      params.push(startDate);
-    }
-
-    if (endDate) {
-      query += ' AND l.created_at <= ?';
-      params.push(endDate);
-    }
-
-    query += ' ORDER BY l.created_at DESC';
-
-    const [rows] = await db.execute(query, params);
-
-    return rows;
-
+    return { rows, total };
   } catch (error) {
     console.error('Erro ao buscar logs:', error);
     throw error;
