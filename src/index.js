@@ -13,7 +13,7 @@ const userRoutes = require('./routes/userRoutes');
 const condominiumRoutes = require('./routes/condominiumRoutes');
 const servicesRoutes = require('./routes/servicesRoutes');
 const uploadRoutes = require('./routes/uploads');
-const chargesRoutesAI = require('./routes/chargesRoutesAI');
+const chargesRoutesSupelogicaAP = require('./routes/chargesRoutesSuperlogica');
 const chargesRoutesJS = require('./routes/chargesRoutesJS');
 
 // Rota raiz para teste rápido
@@ -36,7 +36,7 @@ app.use('/users', userRoutes);
 app.use('/condominium', condominiumRoutes);
 app.use('/service', servicesRoutes);
 app.use('/files', uploadRoutes);
-app.use('/cobrancas', chargesRoutesAI);
+app.use('/cobrancas', chargesRoutesSupelogicaAP);
 
 // Porta dinâmica do EasyPanel/Heroku
 const PORT = process.env.PORT || 3001;
