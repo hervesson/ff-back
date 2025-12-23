@@ -162,17 +162,41 @@ router.post(
 );
 
 /* ===== Prompt ===== */
-function buildPromptCasas(casasText) {
+function buildPromptCasasUniversal(texto) {
   return `
-Extraia TODOS os contatos do tipo **Proprietário** do texto abaixo.
+Extraia contatos do tipo **Proprietário** do texto abaixo (PDF de condomínio).
 
-Unidade sempre no formato: "CASA NNN".
+O PDF contém unidades do tipo **CASA**. Em alguns PDFs existe também **QUADRA** (opcional).
+Exemplos de padrões reais:
+- "CASA 003" (sem quadra)
+- "CASA 01" seguido de "QUADRA 01" em outra linha (com quadra)
 
-Retorne APENAS JSON válido:
+TAREFA:
+Retorne uma lista com UM objeto por unidade (casa), agrupando dados do Proprietário.
+
+REGRAS OBRIGATÓRIAS:
+- Considere SOMENTE registros cujo tipo seja "Proprietário"
+- Ignore qualquer outro tipo (Residente, Dependente, Procurador, Inquilino etc.)
+- Extraia e normalize:
+  - casa: número da casa como string, com 1 ou mais dígitos (ex.: "3", "003", "120")
+  - quadra: se existir (pode ser número com 1+ dígitos ou letra como "A"), senão "" (string vazia)
+  - nome: nome completo do proprietário (pode estar quebrado em mais de uma linha)
+  - telefones: array com todos os telefones/celulares do proprietário
+  - emails: array com todos os e-mails do proprietário
+- Remova telefones duplicados e e-mails duplicados
+- Não trate CPF/CNPJ como telefone
+- Não invente dados e não omita registros
+- A unidade deve ser considerada pela combinação:
+  - se quadra existir: (quadra + casa)
+  - se quadra não existir: (casa)
+
+FORMATO DE SAÍDA:
+Retorne APENAS JSON válido (sem texto extra), exatamente assim:
 
 [
   {
     "casa": "003",
+    "quadra": "",
     "nome": "NOME DO PROPRIETÁRIO",
     "telefones": ["..."],
     "emails": ["..."]
@@ -180,9 +204,10 @@ Retorne APENAS JSON válido:
 ]
 
 Texto:
-${casasText}
+${texto}
 `;
 }
+
 
 /* ========================== ROTA ========================== */
 router.post(
@@ -202,7 +227,7 @@ router.post(
         model: 'gpt-4o-mini',
         temperature: 0.2,
         max_tokens: 4000,
-        messages: [{ role: 'user', content: buildPromptCasas(text) }],
+        messages: [{ role: 'user', content: buildPromptCasasUniversal(text) }],
       });
 
 
@@ -249,43 +274,33 @@ router.post(
 
 function buildPromptLotes(lotesText) {
   return `
-Extraia APENAS contatos do tipo **Proprietário** do texto abaixo.
+Você vai extrair APENAS os dados do contato do tipo "Proprietário" referentes a UMA unidade (uma casa) do texto abaixo.
 
-O texto vem de um PDF de condomínio com unidades do tipo **LOTE**.
-A unidade pode aparecer nos seguintes formatos:
+O texto (chunk) sempre contém:
+- "CASA <número>" (número pode ter 1 ou mais dígitos)
+- Opcionalmente "QUADRA <valor>" (pode ser número com 1+ dígitos ou letra como "A")
+- Nome do proprietário (pode estar quebrado em mais de uma linha)
+- Telefones/celulares (podem estar em várias linhas, com parênteses, hífens, +55, e separados por ; )
+- E-mails (podem estar em 1 ou mais linhas, separados por ; )
 
-- "LOTE 49M"
-- "LOTE 49T"
-- "LOTE 2" seguido de "QUADRA A" (em outra linha)
-- "LOTE 10" seguido de "QUADRA B"
+REGRAS:
+- Se houver tipos (Residente/Dependente/Inquilino/Procurador), ignore tudo que NÃO for "Proprietário".
+- Se o relatório já indicar "Tipo do contato: Proprietário", então todo contato no chunk é proprietário.
+- Não trate CPF/CNPJ como telefone.
+- Remova telefones duplicados.
+- Remova e-mails duplicados.
+- Não invente dados.
+- Se não existir quadra no chunk, retorne quadra = "".
 
-REGRAS OBRIGATÓRIAS:
-- Considere SOMENTE registros cujo tipo seja "Proprietário"
-- Ignore Dependente e Procurador
-- Ignore registros administrativos que NÃO sejam lote (ex.: "001 01 Proprietário da unid. 001 01- MOURA")
-- Normalize os campos:
-  - "lote": valor do lote (ex.: "49M", "2", "10")
-  - "quadra": letra da quadra se existir (ex.: "A", "B"), senão string vazia
-- Agrupe os dados por unidade:
-  - Se houver quadra: chave = "QD-<quadra>-LT-<lote>"
-  - Se não houver quadra: chave = "LT-<lote>"
-- Remova telefones duplicados
-- Remova e-mails duplicados
-- Não invente dados
-- NÃO omita nenhum proprietário válido
+Retorne APENAS JSON válido, sem texto extra, exatamente neste formato:
 
-Formato de saída:
-Retorne APENAS JSON válido (array), sem texto extra:
-
-[
-  {
-    "lote": "2",
-    "quadra": "A",
-    "nome": "NOME DO PROPRIETÁRIO",
-    "telefones": ["..."],
-    "emails": ["..."]
-  }
-]
+{
+  "casa": "<string numérica>",
+  "quadra": "<string ou vazio>",
+  "nome": "<string>",
+  "telefones": ["..."],
+  "emails": ["..."]
+}
 
 Texto:
 ${lotesText}

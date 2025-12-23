@@ -1,13 +1,13 @@
 const db = require('../config/db');
 
-const createCondominium = async (name, cnpj, trustee, phone) => {
-    try {
-        const result = await db.execute('INSERT INTO condominium (name, cnpj, trustee, phone) VALUES (?, ?, ?, ?)', [name, cnpj, trustee, phone])
-        return result 
-    } catch (error) {
-        console.error('Erro ao registrar usuário:', error);
-        throw error;
-    }
+const createCondominium = async (name, cnpj, sistemaDeGestao, tipoDeUnidade, trustee, phone) => {
+  try {
+    const result = await db.execute('INSERT INTO condominium (name, cnpj, sistema_de_gestao, tipo_de_unidade, trustee, phone) VALUES (?, ?, ?, ?, ?, ?)', [name, cnpj, sistemaDeGestao, tipoDeUnidade, trustee, phone])
+    return result
+  } catch (error) {
+    console.error('Erro ao registrar usuário:', error);
+    throw error;
+  }
 }
 
 const getAllCondominiuns = async (searchTerm = '') => {
