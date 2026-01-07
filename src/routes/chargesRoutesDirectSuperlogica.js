@@ -99,7 +99,7 @@ RETORNE APENAS JSON válido (sem texto extra), exatamente neste formato:
  * ✅ Aceita "arquivo" OU "contatos"
  * Se seu front enviar outro nome, troque para upload.any() (ver comentário abaixo).
  */
-router.post('/analisar-pdf-direto', upload.any(), async (req, res) => {
+router.post('/analisar-pdf-superlogica', upload.any(), async (req, res) => {
   const file = req.files?.[0];
 
   if (!file) {
