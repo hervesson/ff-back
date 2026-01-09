@@ -8,10 +8,6 @@ const OpenAI = require('openai');
 const router = express.Router();
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-/**
- * ✅ Melhor que dest: garante que o arquivo tenha extensão no disco.
- * Isso evita vários bugs de "file type none".
- */
 const storage = multer.diskStorage({
   destination: 'uploads/',
   filename: (req, file, cb) => {
@@ -23,15 +19,13 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   fileFilter: (req, file, cb) => {
-    // opcional: restringir a PDF (se quiser)
-    // se seu front mandar mimetype errado, comente esta validação
     const ok =
       file.mimetype === 'application/pdf' ||
       (file.originalname || '').toLowerCase().endsWith('.pdf');
     if (!ok) return cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname));
     cb(null, true);
   },
-  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB (ajuste se precisar)
+  limits: { fileSize: 25 * 1024 * 1024 },
 });
 
 function safeParseJSON(raw) {
@@ -49,31 +43,67 @@ function safeParseJSON(raw) {
   }
 }
 
-function buildPromptUniversal() {
+/**
+ * Normaliza unidade para bater "CASA 003" com "CASA 3", etc.
+ * E suporta seus formatos: apt/bloco, casa, casa+quadra, lote, lote+quadra.
+ */
+function normalizeUnidade(u) {
+  if (!u) return '';
+  let s = String(u).toUpperCase().trim();
+
+  // remove pontuação "solta"
+  s = s.replace(/[.,;:/\\|]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+  // padroniza abreviações
+  s = s
+    .replace(/\bAPARTAMENTO\b/g, 'AP')
+    .replace(/\bAPTO\b/g, 'AP')
+    .replace(/\bAP\b/g, 'AP')
+    .replace(/\bBLOCO\b/g, 'BL')
+    .replace(/\bQUADRA\b/g, 'QD')
+    .replace(/\bLOTE\b/g, 'LT');
+
+  // CASA 003 -> CASA 3 (ou se quiser manter 3 dígitos, dá pra padronizar ao contrário)
+  s = s.replace(/\bCASA\s*0+(\d+)\b/g, 'CASA $1');
+  s = s.replace(/\bLT\s*0+(\d+)\b/g, 'LT $1');
+  s = s.replace(/\bAP\s*0+(\d+)\b/g, 'AP $1');
+
+  // também normaliza "CASA003" / "LT12" / "AP102"
+  s = s.replace(/\bCASA\s*0*(\d+)\b/g, 'CASA $1');
+  s = s.replace(/\bLT\s*0*(\d+)\b/g, 'LT $1');
+  s = s.replace(/\bAP\s*0*(\d+)\b/g, 'AP $1');
+
+  // normaliza "4-102" (bloco-apto) => "AP 102 BL 4"
+  // pega padrões tipo "4-102" ou "04-0102"
+  s = s.replace(/\b0*(\d+)\s*-\s*0*(\d+)\b/g, 'AP $2 BL $1');
+
+  // remove espaços duplicados
+  s = s.replace(/\s+/g, ' ').trim();
+
+  return s;
+}
+
+function buildPromptContatos() {
   return `
 Extraia APENAS contatos do tipo "Proprietário" do PDF anexado.
 
 O PDF pode estar em QUALQUER um destes formatos de unidade (você deve identificar automaticamente):
 
 1) BLOCO + APARTAMENTO
-   - Pode aparecer como "BLOCO 04 AP 102", "AP 102 BL 04" ou "4-102" (bloco antes do apto).
-   - Saída em "unidade": "<APTO> BL <BLOCO>" (ex.: "102 BL 04")
+   - Pode aparecer como "BLOCO 04 AP 102", "AP 102 BL 04" ou "4-102".
+   - Saída em "unidade": "AP <NUM> BL <BLOCO>" (ex.: "AP 102 BL 4")
 
 2) CASA (sem quadra)
-   - Pode aparecer como "CASA 10"
-   - Saída em "unidade": "CASA <NUM>" (ex.: "CASA 10")
+   - Saída: "CASA <NUM>" (ex.: "CASA 10")
 
 3) CASA + QUADRA
-   - Pode aparecer como "CASA 10" e em seguida "QUADRA 2" (ou na mesma linha)
-   - Saída em "unidade": "CASA <NUM> QD <QUADRA>" (ex.: "CASA 10 QD 2")
+   - Saída: "CASA <NUM> QD <QUADRA>" (ex.: "CASA 10 QD 2")
 
 4) LOTE (sem quadra)
-   - Pode aparecer como "LOTE 12" ou "LT 12"
-   - Saída em "unidade": "LT <NUM>" (ex.: "LT 12")
+   - Saída: "LT <NUM>" (ex.: "LT 12")
 
 5) LOTE + QUADRA
-   - Pode aparecer como "LOTE 12" e "QUADRA A/2/10" etc.
-   - Saída em "unidade": "QD <QUADRA> LT <NUM>" (ex.: "QD A LT 12" ou "QD 2 LT 12")
+   - Saída: "QD <QUADRA> LT <NUM>" (ex.: "QD A LT 12" ou "QD 2 LT 12")
 
 REGRAS:
 - Considere SOMENTE registros cujo tipo seja "Proprietário"
@@ -82,91 +112,146 @@ REGRAS:
 - Não trate CPF/CNPJ como telefone
 - Não invente dados e não omita registros
 
-RETORNE APENAS JSON válido (sem texto extra), exatamente neste formato:
+RETORNE APENAS JSON válido, exatamente:
 
 [
-  {
-    "unidade": "...",
-    "Nome": "...",
-    "Telefone": ["..."],
-    "Email": ["..."]
-  }
+  { "unidade": "...", "Nome": "...", "Telefone": ["..."], "Email": ["..."] }
 ]
 `;
 }
 
-/**
- * ✅ Aceita "arquivo" OU "contatos"
- * Se seu front enviar outro nome, troque para upload.any() (ver comentário abaixo).
- */
-router.post('/analisar-pdf-superlogica', upload.any(), async (req, res) => {
-  const file = req.files?.[0];
+function buildPromptInadimplentes() {
+  return `
+Você receberá um PDF de INADIMPLÊNCIA (cobranças).
 
-  if (!file) {
-    return res.status(400).json({
-      erro: 'Envie o PDF no campo "arquivo" ou "contatos" (multipart/form-data).',
-    });
-  }
+Sua missão é extrair APENAS a lista de UNIDADES inadimplentes.
+Ignore valores, parcelas, juros, multas, códigos, notificações.
 
-  const filePath = file.path;
+A unidade pode aparecer como:
+- "CASA 003 - Nome ..."
+- "AP 102 BL 04 - Nome ..."
+- "QD A LT 12 - Nome ..."
 
-  try {
-    // ✅ força filename .pdf no multipart pra OpenAI (mesmo se o path fosse sem ext)
-    const stream = fs.createReadStream(filePath);
-    //stream.path = 'documento.pdf';
+RETORNE APENAS JSON válido neste formato:
 
-    const uploaded = await client.files.create({
-      file: stream,
-      purpose: 'assistants',
-    });
+[
+  { "unidade": "..." }
+]
 
-    const response = await client.responses.create({
-      model: 'gpt-4o-mini',
-      temperature: 0.2,
-      input: [
-        {
-          role: 'user',
-          content: [
-            { type: 'input_text', text: buildPromptUniversal() },
-            { type: 'input_file', file_id: uploaded.id },
-          ],
-        },
-      ],
-    });
+REGRAS:
+- Não invente unidades
+- Remova duplicadas
+- Não inclua nome, valores ou qualquer texto extra
+`;
+}
 
-    const raw = response.output_text || '';
-    const data = safeParseJSON(raw);
+async function extractJSONFromPDF(filePath, prompt) {
+  const stream = fs.createReadStream(filePath);
 
-    if (!data) {
-      return res.status(422).json({
-        erro: 'A IA não retornou JSON válido.',
-        raw_preview: raw.slice(0, 2000),
+  const uploaded = await client.files.create({
+    file: stream,
+    purpose: 'assistants',
+  });
+
+  const response = await client.responses.create({
+    model: 'gpt-4o-mini',
+    temperature: 0.2,
+    input: [
+      {
+        role: 'user',
+        content: [
+          { type: 'input_text', text: prompt },
+          { type: 'input_file', file_id: uploaded.id },
+        ],
+      },
+    ],
+  });
+
+  const raw = response.output_text || '';
+  const data = safeParseJSON(raw);
+  return { data, raw };
+}
+
+// ✅ agora recebe 2 arquivos
+router.post(
+  '/analisar-pdf-superlogica',
+  upload.fields([
+    { name: 'contatos', maxCount: 1 },
+    { name: 'inadimplentes', maxCount: 1 },
+  ]),
+  async (req, res) => {
+    const contatosFile = req.files?.contatos?.[0];
+    const inadFile = req.files?.inadimplentes?.[0];
+
+    if (!contatosFile || !inadFile) {
+      return res.status(400).json({
+        erro: 'Envie 2 PDFs via multipart/form-data: campos "contatos" e "inadimplentes".',
       });
     }
 
-    return res.json(data);
-  } catch (err) {
-    console.error('Erro /analisar-pdf-direto:', err);
-    return res.status(500).json({
-      erro: 'Falha ao enviar PDF para IA',
-      detalhes: err.message,
-    });
-  } finally {
-    try {
-      fs.unlinkSync(filePath);
-    } catch { }
-  }
-}
-);
+    const contatosPath = contatosFile.path;
+    const inadPath = inadFile.path;
 
-/**
- * ✅ Se você quiser ZERO risco de "Unexpected field":
- * comente a rota acima e use esta (aceita qualquer nome de campo):
- *
- * router.post('/analisar-pdf-direto', upload.any(), async (req, res) => {
- *   const file = req.files?.[0];
- *   ...
- * });
- */
+    try {
+      // 1) extrai contatos
+      const contatosR = await extractJSONFromPDF(contatosPath, buildPromptContatos());
+      if (!contatosR.data) {
+        return res.status(422).json({
+          erro: 'A IA não retornou JSON válido para CONTATOS.',
+          raw_preview: (contatosR.raw || '').slice(0, 2000),
+        });
+      }
+
+      // 2) extrai inadimplentes (só unidades)
+      const inadR = await extractJSONFromPDF(inadPath, buildPromptInadimplentes());
+      if (!inadR.data) {
+        return res.status(422).json({
+          erro: 'A IA não retornou JSON válido para INADIMPLENTES.',
+          raw_preview: (inadR.raw || '').slice(0, 2000),
+        });
+      }
+
+      const contatos = Array.isArray(contatosR.data) ? contatosR.data : [];
+      const inad = Array.isArray(inadR.data) ? inadR.data : [];
+
+      // 3) normaliza e cruza por unidade
+      const inadSet = new Set(
+        inad
+          .map((x) => normalizeUnidade(x?.unidade))
+          .filter(Boolean)
+      );
+
+      const result = contatos.filter((c) => {
+        const key = normalizeUnidade(c?.unidade);
+        return key && inadSet.has(key);
+      });
+
+      // (opcional) lista quem está inadimplente mas não achou contato
+      const contatosSet = new Set(
+        contatos.map((c) => normalizeUnidade(c?.unidade)).filter(Boolean)
+      );
+
+      const inadSemContato = [...inadSet].filter((u) => !contatosSet.has(u));
+
+      const payload = result.map((c) => ({
+        unidade: c.unidade,
+        Nome: c.Nome,
+        Telefone: Array.isArray(c.Telefone) ? c.Telefone : [],
+        Email: Array.isArray(c.Email) ? c.Email : [],
+      }));
+
+      return res.json(payload);
+    } catch (err) {
+      console.error('Erro /analisar-pdf-superlogica-inadimplentes:', err);
+      return res.status(500).json({
+        erro: 'Falha ao processar PDFs',
+        detalhes: err.message,
+      });
+    } finally {
+      try { fs.unlinkSync(contatosPath); } catch { }
+      try { fs.unlinkSync(inadPath); } catch { }
+    }
+  }
+);
 
 module.exports = router;
