@@ -51,37 +51,48 @@ function normalizeUnidade(u) {
   if (!u) return '';
   let s = String(u).toUpperCase().trim();
 
-  // remove pontuação "solta"
+  // limpa pontuação e espaços
   s = s.replace(/[.,;:/\\|]+/g, ' ').replace(/\s+/g, ' ').trim();
 
-  // padroniza abreviações
+  // padroniza palavras
   s = s
     .replace(/\bAPARTAMENTO\b/g, 'AP')
     .replace(/\bAPTO\b/g, 'AP')
-    .replace(/\bAP\b/g, 'AP')
     .replace(/\bBLOCO\b/g, 'BL')
     .replace(/\bQUADRA\b/g, 'QD')
     .replace(/\bLOTE\b/g, 'LT');
 
-  // CASA 003 -> CASA 3 (ou se quiser manter 3 dígitos, dá pra padronizar ao contrário)
-  s = s.replace(/\bCASA\s*0+(\d+)\b/g, 'CASA $1');
-  s = s.replace(/\bLT\s*0+(\d+)\b/g, 'LT $1');
-  s = s.replace(/\bAP\s*0+(\d+)\b/g, 'AP $1');
+  // separa "BL07" => "BL 7", "QD02" => "QD 2", "LT001" => "LT 1"
+  s = s.replace(/\bBL\s*0*(\d+)\b/g, 'BL $1');
+  s = s.replace(/\bBL0*(\d+)\b/g, 'BL $1');
 
-  // também normaliza "CASA003" / "LT12" / "AP102"
-  s = s.replace(/\bCASA\s*0*(\d+)\b/g, 'CASA $1');
+  s = s.replace(/\bQD\s*0*([A-Z0-9]+)\b/g, 'QD $1');
+  s = s.replace(/\bQD0*([A-Z0-9]+)\b/g, 'QD $1');
+
   s = s.replace(/\bLT\s*0*(\d+)\b/g, 'LT $1');
-  s = s.replace(/\bAP\s*0*(\d+)\b/g, 'AP $1');
+  s = s.replace(/\bLT0*(\d+)\b/g, 'LT $1');
 
-  // normaliza "4-102" (bloco-apto) => "AP 102 BL 4"
-  // pega padrões tipo "4-102" ou "04-0102"
+  // CASA 003 => CASA 3
+  s = s.replace(/\bCASA\s*0*(\d+)\b/g, 'CASA $1');
+
+  // padrão "4-102" => "AP 102 BL 4"
   s = s.replace(/\b0*(\d+)\s*-\s*0*(\d+)\b/g, 'AP $2 BL $1');
+
+  // se vier "102 BL 1" (sem AP), assume AP quando tem BL
+  s = s.replace(/^\s*0*(\d+)\s+BL\s+0*(\d+)\b/, 'AP $1 BL $2');
+
+  // reordena "BL 1 AP 102" => "AP 102 BL 1"
+  s = s.replace(/\bBL\s+0*(\d+)\s+AP\s+0*(\d+)\b/g, 'AP $2 BL $1');
+
+  // normaliza "AP 001" => "AP 1"
+  s = s.replace(/\bAP\s*0*(\d+)\b/g, 'AP $1');
 
   // remove espaços duplicados
   s = s.replace(/\s+/g, ' ').trim();
 
   return s;
 }
+
 
 function buildPromptContatos() {
   return `
