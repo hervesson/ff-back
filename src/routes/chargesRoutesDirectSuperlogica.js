@@ -54,6 +54,14 @@ function normalizeUnidade(u) {
   // limpa pontuação e espaços
   s = s.replace(/[.,;:/\\|]+/g, ' ').replace(/\s+/g, ' ').trim();
 
+  // ✅ NOVO: unidade só numérica (ex.: 0103, 0201, 1207)
+  // Interpreta como apartamento sem bloco e remove zeros à esquerda.
+  // 0103 => AP 103
+  if (/^\d{1,6}$/.test(s)) {
+    const n = String(parseInt(s, 10));
+    return n && n !== 'NAN' ? `AP ${n}` : '';
+  }
+
   // padroniza palavras
   s = s
     .replace(/\bAPARTAMENTO\b/g, 'AP')
@@ -87,12 +95,14 @@ function normalizeUnidade(u) {
   // normaliza "AP 001" => "AP 1"
   s = s.replace(/\bAP\s*0*(\d+)\b/g, 'AP $1');
 
+  // ✅ NOVO: "AP 0103" (ou "AP0103") => "AP 103"
+  s = s.replace(/\bAP\s*0*(\d{1,6})\b/g, (m, d) => `AP ${parseInt(d, 10)}`);
+
   // remove espaços duplicados
   s = s.replace(/\s+/g, ' ').trim();
 
   return s;
 }
-
 
 function buildPromptContatos() {
   return `
@@ -103,6 +113,10 @@ O PDF pode estar em QUALQUER um destes formatos de unidade (você deve identific
 1) BLOCO + APARTAMENTO
    - Pode aparecer como "BLOCO 04 AP 102", "AP 102 BL 04" ou "4-102".
    - Saída em "unidade": "AP <NUM> BL <BLOCO>" (ex.: "AP 102 BL 4")
+
+✅ 1.1) APARTAMENTO (SEM BLOCO)
+   - Pode aparecer como "AP 103", "103" ou só como "0103" (unidade numérica).
+   - Saída em "unidade": "AP <NUM>" (ex.: "AP 103")  // remova zeros à esquerda
 
 2) CASA (sem quadra)
    - Saída: "CASA <NUM>" (ex.: "CASA 10")
@@ -122,6 +136,7 @@ REGRAS:
 - Remova telefones duplicados e e-mails duplicados
 - Não trate CPF/CNPJ como telefone
 - Não invente dados e não omita registros
+- Se a unidade vier como "0103", converta para "AP 103"
 
 RETORNE APENAS JSON válido, exatamente:
 
@@ -142,6 +157,7 @@ A unidade pode aparecer como:
 - "CASA 003 - Nome ..."
 - "AP 102 BL 04 - Nome ..."
 - "QD A LT 12 - Nome ..."
+✅ - apenas numérica no início da linha: "0103 - Nome ..." (apartamento sem bloco)
 
 RETORNE APENAS JSON válido neste formato:
 
@@ -153,8 +169,10 @@ REGRAS:
 - Não invente unidades
 - Remova duplicadas
 - Não inclua nome, valores ou qualquer texto extra
+- Se a unidade vier como "0103", converta para "AP 103" (remova zeros à esquerda)
 `;
 }
+
 
 async function extractJSONFromPDF(filePath, prompt) {
   const stream = fs.createReadStream(filePath);
