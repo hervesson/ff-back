@@ -44,8 +44,8 @@ function safeParseJSON(raw) {
 }
 
 /**
- * Normaliza unidade para bater "CASA 003" com "CASA 3", etc.
- * E suporta seus formatos: apt/bloco, casa, casa+quadra, lote, lote+quadra.
+ * Normaliza textos já "rotulados" (AP/BL/CASA/LT/QD etc.)
+ * Retorna UMA forma canônica (quando possível).
  */
 function normalizeUnidade(u) {
   if (!u) return '';
@@ -53,14 +53,6 @@ function normalizeUnidade(u) {
 
   // limpa pontuação e espaços
   s = s.replace(/[.,;:/\\|]+/g, ' ').replace(/\s+/g, ' ').trim();
-
-  // ✅ NOVO: unidade só numérica (ex.: 0103, 0201, 1207)
-  // Interpreta como apartamento sem bloco e remove zeros à esquerda.
-  // 0103 => AP 103
-  if (/^\d{1,6}$/.test(s)) {
-    const n = String(parseInt(s, 10));
-    return n && n !== 'NAN' ? `AP ${n}` : '';
-  }
 
   // padroniza palavras
   s = s
@@ -95,13 +87,70 @@ function normalizeUnidade(u) {
   // normaliza "AP 001" => "AP 1"
   s = s.replace(/\bAP\s*0*(\d+)\b/g, 'AP $1');
 
-  // ✅ NOVO: "AP 0103" (ou "AP0103") => "AP 103"
-  s = s.replace(/\bAP\s*0*(\d{1,6})\b/g, (m, d) => `AP ${parseInt(d, 10)}`);
-
   // remove espaços duplicados
   s = s.replace(/\s+/g, ' ').trim();
 
   return s;
+}
+
+/**
+ * ✅ Gera várias chaves possíveis (aliases) para UMA unidade,
+ * pra aguentar variações da IA e formatos diferentes.
+ *
+ * - Serro Mirador: "001 01" => AP 1 BL 1
+ * - Maritimus (SEM BLOCO): "0103" => AP 103 (apenas número do apt com zero à esquerda)
+ */
+function unidadeKeys(u) {
+  if (!u) return [];
+  let s = String(u).toUpperCase().trim();
+  s = s.replace(/[.,;:/\\|]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const keys = new Set();
+
+  // 1) sempre tenta normalização "rotulada"
+  const norm = normalizeUnidade(s);
+  if (norm) keys.add(norm);
+
+  // 2) SERRO MIRADOR / TUPY: "001 01" => AP 1 BL 1 (também cobre "001 01 - NOME...")
+  {
+    const m = s.match(/^\s*0*(\d{1,5})\s+0*(\d{1,3})(?:\b|[^0-9].*)$/);
+    if (m) {
+      const ap = parseInt(m[1], 10);
+      const bl = parseInt(m[2], 10);
+      if (!Number.isNaN(ap) && !Number.isNaN(bl)) {
+        keys.add(`AP ${ap} BL ${bl}`);
+      }
+    }
+  }
+
+  // 3) MARITIMUS (PRÉDIO SEM BLOCO): "0103" é o AP (com zero à esquerda)
+  // "0103" => AP 103
+  // Também adiciona "0103" e "103" como fallback.
+  {
+    const rawDigits = s.replace(/\D/g, '');
+    if (rawDigits.length === 4) {
+      const ap = parseInt(rawDigits, 10); // remove zeros à esquerda
+      if (!Number.isNaN(ap)) {
+        keys.add(`AP ${ap}`);                 // canônico
+        keys.add(rawDigits);                  // "0103"
+        keys.add(String(ap));                 // "103"
+      }
+    }
+  }
+
+  // 4) Se vier só "103" (3 dígitos) ou "03" (2 dígitos) ou "3" (1 dígito): assume AP <n>
+  {
+    const only = s.replace(/\D/g, '');
+    if (only.length >= 1 && only.length <= 3) {
+      const n = parseInt(only, 10);
+      if (!Number.isNaN(n)) {
+        keys.add(`AP ${n}`);
+        keys.add(String(n));
+      }
+    }
+  }
+
+  return [...keys].filter(Boolean);
 }
 
 function buildPromptContatos() {
@@ -112,23 +161,29 @@ O PDF pode estar em QUALQUER um destes formatos de unidade (você deve identific
 
 1) BLOCO + APARTAMENTO
    - Pode aparecer como "BLOCO 04 AP 102", "AP 102 BL 04" ou "4-102".
-   - Saída em "unidade": "AP <NUM> BL <BLOCO>" (ex.: "AP 102 BL 4")
+   - Saída: "AP <NUM> BL <BLOCO>" (ex.: "AP 102 BL 4")
 
-✅ 1.1) APARTAMENTO (SEM BLOCO)
-   - Pode aparecer como "AP 103", "103" ou só como "0103" (unidade numérica).
-   - Saída em "unidade": "AP <NUM>" (ex.: "AP 103")  // remova zeros à esquerda
+✅ 1.1) BLOCO + APARTAMENTO (SEM RÓTULOS) (Serro Mirador)
+   - Pode aparecer como "001 01", "101 03" (dois números separados por espaço).
+   - Interprete como "AP <primeiro> BL <segundo>"
+   - Saída: "AP <NUM> BL <BLOCO>" (ex.: "AP 1 BL 1", "AP 101 BL 3")
+
+✅ 1.2) APARTAMENTO SEM BLOCO (Maritimus)
+   - Pode aparecer como "0103", "0201", "1207" (quatro dígitos com zeros à esquerda) ou "103".
+   - Interprete como APENAS o número do apartamento.
+   - Saída: "AP <NUM>" (ex.: "AP 103", "AP 201", "AP 1207") removendo zeros à esquerda.
 
 2) CASA (sem quadra)
-   - Saída: "CASA <NUM>" (ex.: "CASA 10")
+   - Saída: "CASA <NUM>"
 
 3) CASA + QUADRA
-   - Saída: "CASA <NUM> QD <QUADRA>" (ex.: "CASA 10 QD 2")
+   - Saída: "CASA <NUM> QD <QUADRA>"
 
 4) LOTE (sem quadra)
-   - Saída: "LT <NUM>" (ex.: "LT 12")
+   - Saída: "LT <NUM>"
 
 5) LOTE + QUADRA
-   - Saída: "QD <QUADRA> LT <NUM>" (ex.: "QD A LT 12" ou "QD 2 LT 12")
+   - Saída: "QD <QUADRA> LT <NUM>"
 
 REGRAS:
 - Considere SOMENTE registros cujo tipo seja "Proprietário"
@@ -136,7 +191,6 @@ REGRAS:
 - Remova telefones duplicados e e-mails duplicados
 - Não trate CPF/CNPJ como telefone
 - Não invente dados e não omita registros
-- Se a unidade vier como "0103", converta para "AP 103"
 
 RETORNE APENAS JSON válido, exatamente:
 
@@ -157,7 +211,8 @@ A unidade pode aparecer como:
 - "CASA 003 - Nome ..."
 - "AP 102 BL 04 - Nome ..."
 - "QD A LT 12 - Nome ..."
-✅ - apenas numérica no início da linha: "0103 - Nome ..." (apartamento sem bloco)
+✅ Serro Mirador: "001 01 - Nome ..." (AP + BL sem rótulos)
+✅ Maritimus: "0103 - Nome ..." (apenas AP com zeros à esquerda; sem bloco)
 
 RETORNE APENAS JSON válido neste formato:
 
@@ -169,10 +224,10 @@ REGRAS:
 - Não invente unidades
 - Remova duplicadas
 - Não inclua nome, valores ou qualquer texto extra
-- Se a unidade vier como "0103", converta para "AP 103" (remova zeros à esquerda)
+- Se vier "001 01", converta para "AP 1 BL 1"
+- Se vier "0103", converta para "AP 103"
 `;
 }
-
 
 async function extractJSONFromPDF(filePath, prompt) {
   const stream = fs.createReadStream(filePath);
@@ -201,7 +256,6 @@ async function extractJSONFromPDF(filePath, prompt) {
   return { data, raw };
 }
 
-// ✅ agora recebe 2 arquivos
 router.post(
   '/analisar-pdf-superlogica',
   upload.fields([
@@ -243,24 +297,17 @@ router.post(
       const contatos = Array.isArray(contatosR.data) ? contatosR.data : [];
       const inad = Array.isArray(inadR.data) ? inadR.data : [];
 
-      // 3) normaliza e cruza por unidade
-      const inadSet = new Set(
-        inad
-          .map((x) => normalizeUnidade(x?.unidade))
-          .filter(Boolean)
-      );
+      // 3) monta Set de inadimplentes com TODOS os aliases
+      const inadSet = new Set();
+      for (const x of inad) {
+        for (const k of unidadeKeys(x?.unidade)) inadSet.add(k);
+      }
 
+      // 4) filtra contatos: se QUALQUER alias do contato bater no Set
       const result = contatos.filter((c) => {
-        const key = normalizeUnidade(c?.unidade);
-        return key && inadSet.has(key);
+        const keys = unidadeKeys(c?.unidade);
+        return keys.some((k) => inadSet.has(k));
       });
-
-      // (opcional) lista quem está inadimplente mas não achou contato
-      const contatosSet = new Set(
-        contatos.map((c) => normalizeUnidade(c?.unidade)).filter(Boolean)
-      );
-
-      const inadSemContato = [...inadSet].filter((u) => !contatosSet.has(u));
 
       const payload = result.map((c) => ({
         unidade: c.unidade,
@@ -271,7 +318,7 @@ router.post(
 
       return res.json(payload);
     } catch (err) {
-      console.error('Erro /analisar-pdf-superlogica-inadimplentes:', err);
+      console.error('Erro /analisar-pdf-superlogica:', err);
       return res.status(500).json({
         erro: 'Falha ao processar PDFs',
         detalhes: err.message,
