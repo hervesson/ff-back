@@ -4,6 +4,7 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const OpenAI = require('openai');
+const { PDFDocument } = require('pdf-lib');
 
 const router = express.Router();
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -256,6 +257,96 @@ async function extractJSONFromPDF(filePath, prompt) {
   return { data, raw };
 }
 
+/**
+ * Split PDF em chunks de N páginas e salva em arquivos temporários.
+ * Retorna array de caminhos.
+ */
+async function splitPdfIntoChunks(inputPath, pagesPerChunk = 1) {
+  const bytes = fs.readFileSync(inputPath);
+  const pdf = await PDFDocument.load(bytes);
+
+  const totalPages = pdf.getPageCount();
+  const chunkPaths = [];
+
+  for (let start = 0; start < totalPages; start += pagesPerChunk) {
+    const end = Math.min(start + pagesPerChunk, totalPages);
+
+    const outPdf = await PDFDocument.create();
+    const pageIndexes = Array.from({ length: end - start }, (_, i) => start + i);
+
+    const copiedPages = await outPdf.copyPages(pdf, pageIndexes);
+    copiedPages.forEach((p) => outPdf.addPage(p));
+
+    const outBytes = await outPdf.save();
+
+    const chunkPath = path.join(
+      'uploads',
+      `${Date.now()}-${Math.random().toString(16).slice(2)}-chunk-${start + 1}-${end}.pdf`
+    );
+
+    fs.writeFileSync(chunkPath, outBytes);
+    chunkPaths.push(chunkPath);
+  }
+
+  return chunkPaths;
+}
+
+/**
+ * Junta arrays de { unidade: "..." } e remove duplicadas (pela unidade normalizada).
+ * Usa normalizeUnidade para padronizar antes de deduplicar.
+ */
+function mergeAndDedupeUnidades(list) {
+  const map = new Map(); // key(normalizada) -> {unidade: original}
+  for (const item of list) {
+    const u = item?.unidade;
+    if (!u) continue;
+
+    const key = normalizeUnidade(u);
+    if (!key) continue;
+
+    if (!map.has(key)) map.set(key, { unidade: key }); // já salva normalizado
+  }
+  return [...map.values()];
+}
+
+/**
+ * Extrai inadimplentes usando split por páginas (evita truncar).
+ * - chama IA pra cada chunk
+ * - junta
+ * - deduplica
+ */
+async function extractInadimplentesWithSplit(inadPdfPath, pagesPerChunk = 1) {
+  const chunkPaths = await splitPdfIntoChunks(inadPdfPath, pagesPerChunk);
+
+  const all = [];
+  const errors = [];
+
+  try {
+    for (let i = 0; i < chunkPaths.length; i++) {
+      const p = chunkPaths[i];
+
+      const r = await extractJSONFromPDF(p, buildPromptInadimplentes());
+      if (Array.isArray(r.data)) {
+        all.push(...r.data);
+      } else {
+        errors.push({
+          chunk: path.basename(p),
+          raw_preview: (r.raw || '').slice(0, 500),
+        });
+      }
+    }
+
+    // dedupe final
+    const merged = mergeAndDedupeUnidades(all);
+    return { data: merged, errors };
+  } finally {
+    // limpa chunks
+    for (const p of chunkPaths) {
+      try { fs.unlinkSync(p); } catch { }
+    }
+  }
+}
+
 router.post(
   '/analisar-pdf-superlogica',
   upload.fields([
@@ -286,11 +377,12 @@ router.post(
       }
 
       // 2) extrai inadimplentes (só unidades)
-      const inadR = await extractJSONFromPDF(inadPath, buildPromptInadimplentes());
+      // 2) extrai inadimplentes (split pra não truncar)
+      const inadR = await extractInadimplentesWithSplit(inadPath, 2); // 2 páginas por chunk
       if (!inadR.data) {
         return res.status(422).json({
-          erro: 'A IA não retornou JSON válido para INADIMPLENTES.',
-          raw_preview: (inadR.raw || '').slice(0, 2000),
+          erro: 'Não consegui extrair INADIMPLENTES (split).',
+          detalhes: inadR.errors?.slice(0, 5) || [],
         });
       }
 
