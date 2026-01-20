@@ -3,12 +3,11 @@ const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
-const OpenAI = require('openai');
-const { PDFDocument } = require('pdf-lib');
+const pdfParse = require('pdf-parse');
 
 const router = express.Router();
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+/* -------------------- upload -------------------- */
 const storage = multer.diskStorage({
   destination: 'uploads/',
   filename: (req, file, cb) => {
@@ -29,326 +28,159 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 },
 });
 
-function safeParseJSON(raw) {
-  try {
-    if (!raw) return null;
-    const cleaned = raw
-      .trim()
-      .replace(/^```json\s*/i, '')
-      .replace(/^```\s*/i, '')
-      .replace(/```$/i, '')
+/* -------------------- helpers -------------------- */
+async function pdfToText(filePath) {
+  const buf = fs.readFileSync(filePath);
+  const data = await pdfParse(buf);
+  return String(data.text || '');
+}
+
+function normSpaces(s) {
+  return String(s || '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
+}
+
+function canonApBl(ap, bl) {
+  const a = parseInt(ap, 10);
+  const b = parseInt(bl, 10);
+  if (Number.isNaN(a) || Number.isNaN(b)) return null;
+  return `AP ${a} BL ${b}`;
+}
+
+/**
+ * Injeta quebras antes de "001 01 ..." mesmo se o texto vier todo colado.
+ * Garante que cada unidade comece em uma nova "linha".
+ */
+function forceLineBreaksForUnits(text) {
+  let t = String(text || '');
+
+  // formfeed -> newline
+  t = t.replace(/\f/g, '\n');
+
+  // normaliza espaços
+  t = t.replace(/\u00A0/g, ' ').replace(/[ \t]+/g, ' ');
+
+  // \n antes de: "<ap> <bl> <letra>"  (evita pegar datas/valores)
+  t = t.replace(
+    /(^|[^\d])0*(\d{1,5})\s+0*(\d{1,3})\s+([A-ZÀ-Ü])/g,
+    (m, pfx, ap, bl, letter) => `${pfx}\n${ap} ${bl} ${letter}`
+  );
+
+  // também garante \n antes de: "<ap> <bl> -"
+  t = t.replace(
+    /(^|[^\d])0*(\d{1,5})\s+0*(\d{1,3})\s*-\s*/g,
+    (m, pfx, ap, bl) => `${pfx}\n${ap} ${bl} - `
+  );
+
+  // limpa excessos
+  t = t.replace(/\n{3,}/g, '\n\n');
+
+  return t;
+}
+
+function uniq(arr) {
+  return [...new Set((arr || []).filter(Boolean))];
+}
+
+function extractEmails(block) {
+  const m = String(block || '').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi);
+  return m ? m.map(x => x.trim()) : [];
+}
+
+function extractPhones(block) {
+  const s = String(block || '');
+
+  // quebra por separadores comuns do relatório: ";;", vírgula, barra, espaços grandes
+  const parts = s.split(/;;|,|\||\s{2,}/g).map(x => x.trim()).filter(Boolean);
+
+  const out = [];
+  for (const p of parts) {
+    const digits = p.replace(/\D/g, '');
+
+    // descarta CNPJ (14 dígitos) e lixo curto
+    if (digits.length === 14) continue;
+    if (digits.length < 8) continue;
+
+    out.push(p);
+  }
+  return out;
+}
+
+/* -------------------- parser CONTATOS TUPY -------------------- */
+/**
+ * Pega blocos do tipo:
+ * 001 01 NOME...
+ * ... (tel/email/qualquer coisa)
+ * Proprietário
+ * ... (às vezes mais lixo)
+ * [próxima unidade]
+ */
+function parseContatosTupy(text) {
+  const t = forceLineBreaksForUnits(text);
+
+  // bloco = do começo de uma unidade até antes da próxima unidade
+  // ^(\d+)\s+(\d+)\s+...  e vai até lookahead do próximo ^\d+\s+\d+\s+
+  const reBlock = /^0*(\d{1,5})\s+0*(\d{1,3})\s+(.+?)(?=^\s*0*\d{1,5}\s+0*\d{1,3}\s+|\s*$)/gms;
+
+  const out = [];
+  let m;
+
+  while ((m = reBlock.exec(t)) !== null) {
+    const ap = m[1];
+    const bl = m[2];
+    const blockBody = m[3] || '';
+
+    const unidade = canonApBl(ap, bl);
+    if (!unidade) continue;
+
+    // precisa ter “Proprietário” em algum lugar do bloco
+    if (!/PROPRIET[ÁA]RIO/i.test(blockBody)) continue;
+
+    // nome: primeira “linha” do bloco (até newline)
+    const firstLine = normSpaces(blockBody.split('\n')[0] || '');
+    if (!firstLine) continue;
+
+    // remove títulos de coluna se colarem
+    const nome = firstLine
+      .replace(/^NOME\/TELEFONE\/CELULAR\s+TIPO\s*/i, '')
+      .replace(/\bPROPRIET[ÁA]RIO\b/i, '')
       .trim();
-    return JSON.parse(cleaned);
-  } catch {
-    return null;
-  }
-}
 
-/**
- * Normaliza textos já "rotulados" (AP/BL/CASA/LT/QD etc.)
- * Retorna UMA forma canônica (quando possível).
- */
-function normalizeUnidade(u) {
-  if (!u) return '';
-  let s = String(u).toUpperCase().trim();
+    const emails = uniq(extractEmails(blockBody));
+    const tels = uniq(extractPhones(blockBody));
 
-  // limpa pontuação e espaços
-  s = s.replace(/[.,;:/\\|]+/g, ' ').replace(/\s+/g, ' ').trim();
-
-  // padroniza palavras
-  s = s
-    .replace(/\bAPARTAMENTO\b/g, 'AP')
-    .replace(/\bAPTO\b/g, 'AP')
-    .replace(/\bBLOCO\b/g, 'BL')
-    .replace(/\bQUADRA\b/g, 'QD')
-    .replace(/\bLOTE\b/g, 'LT');
-
-  // separa "BL07" => "BL 7", "QD02" => "QD 2", "LT001" => "LT 1"
-  s = s.replace(/\bBL\s*0*(\d+)\b/g, 'BL $1');
-  s = s.replace(/\bBL0*(\d+)\b/g, 'BL $1');
-
-  s = s.replace(/\bQD\s*0*([A-Z0-9]+)\b/g, 'QD $1');
-  s = s.replace(/\bQD0*([A-Z0-9]+)\b/g, 'QD $1');
-
-  s = s.replace(/\bLT\s*0*(\d+)\b/g, 'LT $1');
-  s = s.replace(/\bLT0*(\d+)\b/g, 'LT $1');
-
-  // CASA 003 => CASA 3
-  s = s.replace(/\bCASA\s*0*(\d+)\b/g, 'CASA $1');
-
-  // padrão "4-102" => "AP 102 BL 4"
-  s = s.replace(/\b0*(\d+)\s*-\s*0*(\d+)\b/g, 'AP $2 BL $1');
-
-  // se vier "102 BL 1" (sem AP), assume AP quando tem BL
-  s = s.replace(/^\s*0*(\d+)\s+BL\s+0*(\d+)\b/, 'AP $1 BL $2');
-
-  // reordena "BL 1 AP 102" => "AP 102 BL 1"
-  s = s.replace(/\bBL\s+0*(\d+)\s+AP\s+0*(\d+)\b/g, 'AP $2 BL $1');
-
-  // normaliza "AP 001" => "AP 1"
-  s = s.replace(/\bAP\s*0*(\d+)\b/g, 'AP $1');
-
-  // remove espaços duplicados
-  s = s.replace(/\s+/g, ' ').trim();
-
-  return s;
-}
-
-/**
- * ✅ Gera várias chaves possíveis (aliases) para UMA unidade,
- * pra aguentar variações da IA e formatos diferentes.
- *
- * - Serro Mirador: "001 01" => AP 1 BL 1
- * - Maritimus (SEM BLOCO): "0103" => AP 103 (apenas número do apt com zero à esquerda)
- */
-function unidadeKeys(u) {
-  if (!u) return [];
-  let s = String(u).toUpperCase().trim();
-  s = s.replace(/[.,;:/\\|]+/g, ' ').replace(/\s+/g, ' ').trim();
-
-  const keys = new Set();
-
-  // 1) sempre tenta normalização "rotulada"
-  const norm = normalizeUnidade(s);
-  if (norm) keys.add(norm);
-
-  // 2) SERRO MIRADOR / TUPY: "001 01" => AP 1 BL 1 (também cobre "001 01 - NOME...")
-  {
-    const m = s.match(/^\s*0*(\d{1,5})\s+0*(\d{1,3})(?:\b|[^0-9].*)$/);
-    if (m) {
-      const ap = parseInt(m[1], 10);
-      const bl = parseInt(m[2], 10);
-      if (!Number.isNaN(ap) && !Number.isNaN(bl)) {
-        keys.add(`AP ${ap} BL ${bl}`);
-      }
-    }
+    out.push({
+      unidade,
+      Nome: nome,
+      Telefone: tels,
+      Email: emails,
+    });
   }
 
-  // 3) MARITIMUS (PRÉDIO SEM BLOCO): "0103" é o AP (com zero à esquerda)
-  // "0103" => AP 103
-  // Também adiciona "0103" e "103" como fallback.
-  {
-    const rawDigits = s.replace(/\D/g, '');
-    if (rawDigits.length === 4) {
-      const ap = parseInt(rawDigits, 10); // remove zeros à esquerda
-      if (!Number.isNaN(ap)) {
-        keys.add(`AP ${ap}`);                 // canônico
-        keys.add(rawDigits);                  // "0103"
-        keys.add(String(ap));                 // "103"
-      }
-    }
+  return out;
+}
+
+/* -------------------- parser INADIMPLENTES TUPY -------------------- */
+function parseInadimplentesTupy(text) {
+  const t = forceLineBreaksForUnits(text);
+
+  // linhas chave: "001 01 -"
+  const re = /^0*(\d{1,5})\s+0*(\d{1,3})\s*-\s*/gm;
+
+  const set = new Set();
+  let m;
+  while ((m = re.exec(t)) !== null) {
+    const key = canonApBl(m[1], m[2]);
+    if (key) set.add(key);
   }
-
-  // 4) Se vier só "103" (3 dígitos) ou "03" (2 dígitos) ou "3" (1 dígito): assume AP <n>
-  {
-    const only = s.replace(/\D/g, '');
-    if (only.length >= 1 && only.length <= 3) {
-      const n = parseInt(only, 10);
-      if (!Number.isNaN(n)) {
-        keys.add(`AP ${n}`);
-        keys.add(String(n));
-      }
-    }
-  }
-
-  return [...keys].filter(Boolean);
+  return set;
 }
 
-function buildPromptContatos() {
-  return `
-Extraia APENAS contatos do tipo "Proprietário" do PDF anexado.
-
-O PDF pode estar em QUALQUER um destes formatos de unidade (você deve identificar automaticamente):
-
-1) BLOCO + APARTAMENTO
-   - Pode aparecer como "BLOCO 04 AP 102", "AP 102 BL 04" ou "4-102".
-   - Saída: "AP <NUM> BL <BLOCO>" (ex.: "AP 102 BL 4")
-
-✅ 1.1) BLOCO + APARTAMENTO (SEM RÓTULOS) (Serro Mirador)
-   - Pode aparecer como "001 01", "101 03" (dois números separados por espaço).
-   - Interprete como "AP <primeiro> BL <segundo>"
-   - Saída: "AP <NUM> BL <BLOCO>" (ex.: "AP 1 BL 1", "AP 101 BL 3")
-
-✅ 1.2) APARTAMENTO SEM BLOCO (Maritimus)
-   - Pode aparecer como "0103", "0201", "1207" (quatro dígitos com zeros à esquerda) ou "103".
-   - Interprete como APENAS o número do apartamento.
-   - Saída: "AP <NUM>" (ex.: "AP 103", "AP 201", "AP 1207") removendo zeros à esquerda.
-
-2) CASA (sem quadra)
-   - Saída: "CASA <NUM>"
-
-3) CASA + QUADRA
-   - Saída: "CASA <NUM> QD <QUADRA>"
-
-4) LOTE (sem quadra)
-   - Saída: "LT <NUM>"
-
-5) LOTE + QUADRA
-   - Saída: "QD <QUADRA> LT <NUM>"
-
-REGRAS:
-- Considere SOMENTE registros cujo tipo seja "Proprietário"
-- Ignore Residente, Dependente, Inquilino e Procurador
-- Remova telefones duplicados e e-mails duplicados
-- Não trate CPF/CNPJ como telefone
-- Não invente dados e não omita registros
-
-RETORNE APENAS JSON válido, exatamente:
-
-[
-  { "unidade": "...", "Nome": "...", "Telefone": ["..."], "Email": ["..."] }
-]
-`;
-}
-
-function buildPromptInadimplentes() {
-  return `
-Você receberá um PDF de INADIMPLÊNCIA (cobranças).
-
-Sua missão é extrair APENAS a lista de UNIDADES inadimplentes.
-Ignore valores, parcelas, juros, multas, códigos, notificações.
-
-A unidade pode aparecer como:
-- "CASA 003 - Nome ..."
-- "AP 102 BL 04 - Nome ..."
-- "QD A LT 12 - Nome ..."
-✅ Serro Mirador: "001 01 - Nome ..." (AP + BL sem rótulos)
-✅ Maritimus: "0103 - Nome ..." (apenas AP com zeros à esquerda; sem bloco)
-
-RETORNE APENAS JSON válido neste formato:
-
-[
-  { "unidade": "..." }
-]
-
-REGRAS:
-- Não invente unidades
-- Remova duplicadas
-- Não inclua nome, valores ou qualquer texto extra
-- Se vier "001 01", converta para "AP 1 BL 1"
-- Se vier "0103", converta para "AP 103"
-`;
-}
-
-async function extractJSONFromPDF(filePath, prompt) {
-  const stream = fs.createReadStream(filePath);
-
-  const uploaded = await client.files.create({
-    file: stream,
-    purpose: 'assistants',
-  });
-
-  const response = await client.responses.create({
-    model: 'gpt-4o-mini',
-    temperature: 0.2,
-    input: [
-      {
-        role: 'user',
-        content: [
-          { type: 'input_text', text: prompt },
-          { type: 'input_file', file_id: uploaded.id },
-        ],
-      },
-    ],
-  });
-
-  const raw = response.output_text || '';
-  const data = safeParseJSON(raw);
-  return { data, raw };
-}
-
-/**
- * Split PDF em chunks de N páginas e salva em arquivos temporários.
- * Retorna array de caminhos.
- */
-async function splitPdfIntoChunks(inputPath, pagesPerChunk = 1) {
-  const bytes = fs.readFileSync(inputPath);
-  const pdf = await PDFDocument.load(bytes);
-
-  const totalPages = pdf.getPageCount();
-  const chunkPaths = [];
-
-  for (let start = 0; start < totalPages; start += pagesPerChunk) {
-    const end = Math.min(start + pagesPerChunk, totalPages);
-
-    const outPdf = await PDFDocument.create();
-    const pageIndexes = Array.from({ length: end - start }, (_, i) => start + i);
-
-    const copiedPages = await outPdf.copyPages(pdf, pageIndexes);
-    copiedPages.forEach((p) => outPdf.addPage(p));
-
-    const outBytes = await outPdf.save();
-
-    const chunkPath = path.join(
-      'uploads',
-      `${Date.now()}-${Math.random().toString(16).slice(2)}-chunk-${start + 1}-${end}.pdf`
-    );
-
-    fs.writeFileSync(chunkPath, outBytes);
-    chunkPaths.push(chunkPath);
-  }
-
-  return chunkPaths;
-}
-
-/**
- * Junta arrays de { unidade: "..." } e remove duplicadas (pela unidade normalizada).
- * Usa normalizeUnidade para padronizar antes de deduplicar.
- */
-function mergeAndDedupeUnidades(list) {
-  const map = new Map(); // key(normalizada) -> {unidade: original}
-  for (const item of list) {
-    const u = item?.unidade;
-    if (!u) continue;
-
-    const key = normalizeUnidade(u);
-    if (!key) continue;
-
-    if (!map.has(key)) map.set(key, { unidade: key }); // já salva normalizado
-  }
-  return [...map.values()];
-}
-
-/**
- * Extrai inadimplentes usando split por páginas (evita truncar).
- * - chama IA pra cada chunk
- * - junta
- * - deduplica
- */
-async function extractInadimplentesWithSplit(inadPdfPath, pagesPerChunk = 1) {
-  const chunkPaths = await splitPdfIntoChunks(inadPdfPath, pagesPerChunk);
-
-  const all = [];
-  const errors = [];
-
-  try {
-    for (let i = 0; i < chunkPaths.length; i++) {
-      const p = chunkPaths[i];
-
-      const r = await extractJSONFromPDF(p, buildPromptInadimplentes());
-      if (Array.isArray(r.data)) {
-        all.push(...r.data);
-      } else {
-        errors.push({
-          chunk: path.basename(p),
-          raw_preview: (r.raw || '').slice(0, 500),
-        });
-      }
-    }
-
-    // dedupe final
-    const merged = mergeAndDedupeUnidades(all);
-    return { data: merged, errors };
-  } finally {
-    // limpa chunks
-    for (const p of chunkPaths) {
-      try { fs.unlinkSync(p); } catch { }
-    }
-  }
-}
-
+/* -------------------- rota exclusiva -------------------- */
 router.post(
-  '/analisar-pdf-superlogica',
+  '/analisar-tupy',
   upload.fields([
     { name: 'contatos', maxCount: 1 },
     { name: 'inadimplentes', maxCount: 1 },
@@ -367,57 +199,40 @@ router.post(
     const inadPath = inadFile.path;
 
     try {
-      // 1) extrai contatos
-      const contatosR = await extractJSONFromPDF(contatosPath, buildPromptContatos());
-      if (!contatosR.data) {
-        return res.status(422).json({
-          erro: 'A IA não retornou JSON válido para CONTATOS.',
-          raw_preview: (contatosR.raw || '').slice(0, 2000),
-        });
-      }
+      const [contatosText, inadText] = await Promise.all([
+        pdfToText(contatosPath),
+        pdfToText(inadPath),
+      ]);
 
-      // 2) extrai inadimplentes (só unidades)
-      // 2) extrai inadimplentes (split pra não truncar)
-      const inadR = await extractInadimplentesWithSplit(inadPath, 2); // 2 páginas por chunk
-      if (!inadR.data) {
-        return res.status(422).json({
-          erro: 'Não consegui extrair INADIMPLENTES (split).',
-          detalhes: inadR.errors?.slice(0, 5) || [],
-        });
-      }
+      // DEBUG rápido (se vier 0 aqui, pdf-parse não leu texto)
+      const dbg = {
+        contatos_text_len: contatosText.length,
+        inad_text_len: inadText.length,
+        contatos_sample: contatosText.slice(0, 250),
+        inad_sample: inadText.slice(0, 250),
+      };
 
-      const contatos = Array.isArray(contatosR.data) ? contatosR.data : [];
-      const inad = Array.isArray(inadR.data) ? inadR.data : [];
+      const contatos = parseContatosTupy(contatosText);
+      const inadSet = parseInadimplentesTupy(inadText);
 
-      // 3) monta Set de inadimplentes com TODOS os aliases
-      const inadSet = new Set();
-      for (const x of inad) {
-        for (const k of unidadeKeys(x?.unidade)) inadSet.add(k);
-      }
+      const data = contatos.filter(c => inadSet.has(c.unidade));
 
-      // 4) filtra contatos: se QUALQUER alias do contato bater no Set
-      const result = contatos.filter((c) => {
-        const keys = unidadeKeys(c?.unidade);
-        return keys.some((k) => inadSet.has(k));
+      return res.json({
+        debug: dbg,
+        contatos_total: contatos.length,
+        inad_total: inadSet.size,
+        resultado: data.length,
+        data,
       });
-
-      const payload = result.map((c) => ({
-        unidade: c.unidade,
-        Nome: c.Nome,
-        Telefone: Array.isArray(c.Telefone) ? c.Telefone : [],
-        Email: Array.isArray(c.Email) ? c.Email : [],
-      }));
-
-      return res.json(payload);
     } catch (err) {
-      console.error('Erro /analisar-pdf-superlogica:', err);
+      console.error('Erro /analisar-tupy:', err);
       return res.status(500).json({
         erro: 'Falha ao processar PDFs',
         detalhes: err.message,
       });
     } finally {
-      try { fs.unlinkSync(contatosPath); } catch { }
-      try { fs.unlinkSync(inadPath); } catch { }
+      try { fs.unlinkSync(contatosPath); } catch {}
+      try { fs.unlinkSync(inadPath); } catch {}
     }
   }
 );

@@ -19,6 +19,9 @@ const chargesRoutesJS = require('./routes/chargesRoutesJS');
 const chargesRoutesDirectSuperlogica = require('./routes/chargesRoutesDirectSuperlogica');
 const chargesRoutesDirectCondomob = require('./routes/chargesRoutesDirectCondomob');
 const chargesRoutesDirectBRCondominios = require('./routes/chargesRoutesDirectBRCondominios');
+const chargesRoutesPySuperlogica = require('./routes/chargesRoutesPySuperlogica');
+const chargesRoutesPyCondomob = require('./routes/chargesRoutesPyCondomob');
+
 
 // Rota raiz para teste rápido
 app.get("/", (req, res) => {
@@ -45,6 +48,8 @@ app.use('/cobrancas/condomob', chargesRoutesCondomob);
 app.use('/cobrancas/direct/superlogica', chargesRoutesDirectSuperlogica);
 app.use('/cobrancas/direct/condomob', chargesRoutesDirectCondomob);
 app.use('/cobrancas/direct/brcondominios', chargesRoutesDirectBRCondominios);
+app.use('/cobrancas/pyton/superlogica', chargesRoutesPySuperlogica);
+app.use('/cobrancas/pyton/condomob', chargesRoutesPyCondomob);
 
 // Porta dinâmica do EasyPanel/Heroku
 const PORT = process.env.PORT || 3001;
