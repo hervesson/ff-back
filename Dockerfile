@@ -1,34 +1,42 @@
 # =========================
-# STAGE 1: Build
+# STAGE 1: Build (Node deps)
 # =========================
-FROM node:20 AS builder
+FROM node:20-bookworm AS builder
 
-# Define o diretório de trabalho
 WORKDIR /app
 
-# Copia package.json e package-lock.json
+# Node deps
 COPY package*.json ./
-
-# Instala todas as dependências (prod + dev)
 RUN npm install
 
-# Copia todo o código da aplicação
+# App code
 COPY . .
 
 # =========================
-# STAGE 2: Produção
+# STAGE 2: Produção (Node + Python)
 # =========================
-FROM node:20-slim
+FROM node:20-bookworm
 
-# Define o diretório de trabalho
 WORKDIR /app
 
-# Copia apenas as dependências de produção do stage anterior
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app ./
+# Instala Python + venv + pip (persistente na imagem)
+RUN apt-get update && apt-get install -y \
+    python3 python3-venv python3-pip \
+  && rm -rf /var/lib/apt/lists/*
 
-# Expõe a porta que a aplicação vai usar (process.env.PORT)
+# Copia app + node_modules do builder
+COPY --from=builder /app /app
+
+# Cria venv e instala libs Python
+RUN python3 -m venv /app/.venv \
+ && /app/.venv/bin/pip install --upgrade pip \
+ && /app/.venv/bin/pip install -r /app/scripts/requirements.txt
+
+# Pasta de uploads (se usar Multer em uploads/)
+RUN mkdir -p /app/uploads
+
+ENV NODE_ENV=production
+ENV PORT=3000
 EXPOSE 3000
 
-# Comando de start
 CMD ["node", "src/index.js"]
