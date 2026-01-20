@@ -30,7 +30,7 @@ COPY --from=builder /app /app
 # Cria venv e instala libs Python
 RUN python3 -m venv /app/.venv \
  && /app/.venv/bin/pip install --upgrade pip \
- && /app/.venv/bin/pip install -r /app/scripts/requirements.txt
+ && /app/.venv/bin/pip install -r /app/requirements.txt
 
 # Pasta de uploads (se usar Multer em uploads/)
 RUN mkdir -p /app/uploads
