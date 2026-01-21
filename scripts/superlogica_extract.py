@@ -121,6 +121,13 @@ def detect_layout(text: str) -> str:
     if c_ap_sem_bl_line >= 8:
         return "AP_SEM_BLOCO"
 
+    # ✅ ELDORADO / SERVGROUP: "104 Bloco 01 ..."
+    c_ap_bloco_palavra = len(re.findall(r"(?m)^\s*0*\d{1,5}\s+BLOCO\s*0*\d{1,3}\b", t))
+
+    # Se aparece bastante, é esse layout
+    if c_ap_bloco_palavra >= 5:
+        return "AP_BLOCO_PALAVRA"
+
     # 5) Rotulado AP/BL explícito
     if c_apbl_rot_strict >= 3 or ("BLOCO" in t and "AP" in t):
         return "APBL_ROTULADO"
@@ -229,6 +236,93 @@ def parse_contatos_apbl_sem_rotulo(text: str) -> List[Dict]:
         })
     return out
 
+def parse_contatos_ap_bloco_palavra(text: str) -> List[Dict]:
+    """
+    ELDORADO / SERVGROUP (contatos):
+    Formato multi-linha:
+      104 Bloco 01
+      NOME...
+      telefones/emails (opcional)
+      Proprietário
+    """
+
+    t = (text or "").replace("\f", "\n")
+    t = t.replace("\u00A0", " ")
+    t = re.sub(r"[ \t]+", " ", t)
+
+    lines = [norm_space(x) for x in t.splitlines() if norm_space(x)]
+    out = []
+
+    # Ex: "104 Bloco 01"
+    re_unit = re.compile(r"^\s*0*(\d{1,5})\s+BLOCO\s*0*(\d{1,3})\s*$", re.I)
+
+    cur = None
+
+    def flush():
+        nonlocal cur
+        if not cur:
+            return
+        cur["Telefone"] = dedupe_list(cur["Telefone"])
+        cur["Email"] = dedupe_list(cur["Email"])
+        out.append(cur)
+        cur = None
+
+    for line in lines:
+        up = line.upper().strip()
+
+        # ignora cabeçalhos
+        if "CONTATOS DAS UNIDADES" in up or "TIPO DO CONTATO" in up:
+            continue
+        if up.startswith("UNIDADE") or "NOME/TELEFONE" in up:
+            continue
+        if up.startswith("W0") and "CONDOMINIO" in up:
+            continue
+        if up.startswith("TOTAL DE CONTATOS"):
+            break
+
+        m = re_unit.match(line)
+        if m:
+            flush()
+            ap = int(m.group(1))
+            bl = int(m.group(2))
+            cur = {
+                "unidade": normalize_unidade(f"AP {ap} BL {bl}"),
+                "Nome": "",
+                "Telefone": [],
+                "Email": [],
+            }
+            continue
+
+        if not cur:
+            continue
+
+        # Linha "Proprietário" encerra o registro
+        if up in ("PROPRIETÁRIO", "PROPRIETARIO"):
+            flush()
+            continue
+
+        # Se ainda não tem nome, a próxima linha após unidade é o nome
+        if not cur["Nome"]:
+            cur["Nome"] = line.title().strip()
+            continue
+
+        # Linhas seguintes: contatos (e-mails e telefones)
+        cur["Email"].extend(extract_emails(line))
+        cur["Telefone"].extend(extract_phones(line))
+
+        # EXTRA: telefones que vêm como "982927360" (9 dígitos sem máscara)
+        # (no relatório de contatos isso é telefone, não tabela)
+        for d in re.findall(r"\b\d{8,9}\b", line):
+            if len(d) == 9 and d.startswith("9"):
+                cur["Telefone"].append(d)
+            elif len(d) == 8 and d[0] in "2345":
+                cur["Telefone"].append(d)
+
+    flush()
+    return out
+
+
+
 def parse_contatos_casa_lines(text: str) -> List[Dict]:
     t = (text or "").replace("\f", "\n")
     t = t.replace("\u00A0", " ")
@@ -293,6 +387,21 @@ def parse_inad_apbl_sem_rotulo(text: str) -> Set[str]:
     for ap, bl in re_line.findall(t):
         s.add(normalize_unidade(f"AP {int(ap)} BL {int(bl)}"))
     return s
+
+def parse_inad_ap_bloco_palavra(text: str) -> Set[str]:
+    """
+    Inadimplentes Servgroup/Eldorado:
+    Linhas tipo: "104 Bloco 01 - NOME"
+    """
+    t = (text or "").replace("\f", "\n")
+    t = t.replace("\u00A0", " ")
+    t = re.sub(r"[ \t]+", " ", t).upper()
+
+    s = set()
+    for ap, bl in re.findall(r"(?m)^\s*0*(\d{1,5})\s+BLOCO\s*0*(\d{1,3})\s*-\s*", t):
+        s.add(normalize_unidade(f"AP {int(ap)} BL {int(bl)}"))
+    return s
+
 
 def parse_contatos_rotulado(text: str) -> List[Dict]:
     t = (text or "").replace("\f", "\n")
@@ -480,6 +589,8 @@ def parse_inad_apbl_num_bl(text: str) -> Set[str]:
 
 # ------------------ router de parser por layout ------------------
 def parse_contatos(layout: str, text: str) -> List[Dict]:
+    if layout == "AP_BLOCO_PALAVRA":
+        return parse_contatos_ap_bloco_palavra(text)
     if layout == "APBL_NAO_ROTULADO":
         return parse_contatos_apbl_sem_rotulo(text)
     if layout == "APBL_ROTULADO":
@@ -511,6 +622,8 @@ def parse_contatos(layout: str, text: str) -> List[Dict]:
     return []
 
 def parse_inad(layout: str, text: str) -> Set[str]:
+    if layout == "AP_BLOCO_PALAVRA":
+        return parse_inad_ap_bloco_palavra(text)
     if layout == "APBL_NAO_ROTULADO":
         return parse_inad_apbl_sem_rotulo(text)
     if layout == "APBL_ROTULADO":
