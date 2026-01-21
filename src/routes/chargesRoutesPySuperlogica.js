@@ -8,9 +8,18 @@ const upload = multer({ dest: "uploads/" });
 
 function runPython(contatosPath, inadPath) {
   return new Promise((resolve, reject) => {
-    const py = spawn("python3", ["scripts/superlogica_extract.py", contatosPath, inadPath], {
-      stdio: ["ignore", "pipe", "pipe"],
+    const pyBin = process.env.PYTHON_BIN || "/app/.venv/bin/python";
+
+    const py = spawn(pyBin, [
+      "scripts/superlogica_extract.py",
+      contatosPath,
+      inadPath,
+    ], { stdio: ["ignore", "pipe", "pipe"] });
+
+    py.on("error", (e) => {
+      console.error("Python spawn error:", e);
     });
+
 
     let out = "";
     let err = "";
