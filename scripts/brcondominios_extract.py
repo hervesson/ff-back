@@ -32,19 +32,37 @@ def uniq(xs):
         out.append(x)
     return out
 
+# ====== Layout antigo: BL I 05 / BL I 106 ======
+OLD_UNIT_RE = re.compile(r"^(BL)\s+([A-ZIVX]+)\s+(\d{1,3})\b", re.I)
+
+# ====== Layout novo: AR1001 / BA102 / BALI1004 (com ou sem espaço) ======
+NEW_UNIT_RE = re.compile(r"\b([A-Z]{1,10})\s*(\d{1,6})\b")
+
 def normalize_unidade(u: str) -> str:
+    """
+    NÃO altera o que já existia.
+    Apenas adiciona suporte ao novo layout.
+
+    Antigo: "BL I 5" -> "BL I 05"
+    Novo:   "AR 1001" -> "AR1001"
+    """
     s = (u or "").upper().strip()
     s = s.replace("\u00A0", " ")
     s = re.sub(r"[ \t]+", " ", s).strip()
 
-    # padroniza: BL I 05 (zero opcional)
-    # mantém 05 como 05 (pq no PDF aparece 05), mas se vier "5", vira "05"
-    m = re.match(r"^(BL)\s+([A-ZIVX]+)\s+(\d{1,3})\b", s)
+    # --- mantém comportamento antigo ---
+    m = OLD_UNIT_RE.match(s)
     if m:
-        bl, bloco, num = m.group(1), m.group(2), m.group(3)
+        bl, bloco, num = m.group(1).upper(), m.group(2).upper(), m.group(3)
         if len(num) == 1:
             num = "0" + num
         return f"{bl} {bloco} {num}"
+
+    # --- adiciona comportamento novo ---
+    # só aplica se parecer unidade do novo padrão (letras + dígitos)
+    m2 = NEW_UNIT_RE.search(s)
+    if m2:
+        return f"{m2.group(1).upper()}{m2.group(2)}"
 
     return s
 
@@ -76,29 +94,53 @@ def normalize_phone(raw: str):
     return None
 
 # ------------------ PARSER: DÉBITOS ------------------
-# No PDF de débitos as linhas começam com: "BL I 05 ..." / "BL I 106 ..."
-DEBITO_UNIT_LINE_RE = re.compile(r"(?m)^\s*(BL)\s+([A-ZIVX]+)\s+(\d{1,3})\b")
+# Antigo: "BL I 05 ..."
+DEBITO_OLD_RE = re.compile(r"(?m)^\s*(BL)\s+([A-ZIVX]+)\s+(\d{1,3})\b", re.I)
+# Novo: "AR301 ..." / "BALI1004 ..."
+DEBITO_NEW_RE = re.compile(r"(?m)^\s*([A-Z]{1,10}\s*\d{1,6})\b")
 
 def parse_inadimplentes_debitos(text: str):
+    """
+    Mantém o que já existia e adiciona suporte ao novo layout.
+    """
     t = (text or "").replace("\f", "\n")
-    s = set()
-    for m in DEBITO_UNIT_LINE_RE.finditer(t.upper()):
+    out = set()
+
+    # --- antigo (preservado) ---
+    for m in DEBITO_OLD_RE.finditer(t.upper()):
         unidade = normalize_unidade(f"{m.group(1)} {m.group(2)} {m.group(3)}")
-        s.add(unidade)
-    return s
+        out.add(unidade)
+
+    # --- novo (adicionado) ---
+    for m in DEBITO_NEW_RE.finditer(t.upper()):
+        unidade = normalize_unidade(m.group(1))
+        out.add(unidade)
+
+    return out
 
 # ------------------ PARSER: CONTATOS (Unidades Expandidas) ------------------
 UNIT_SPLIT_RE = re.compile(r"(?m)^\s*Unidade:\s*", re.I)
 
 def extract_unit_name(unit_block: str) -> str:
-    # primeira linha do bloco: "BL I 01 Local: ..."
+    """
+    Antigo: primeira linha tipo "BL I 01 Local: ..."
+    Novo:   primeira linha tipo "AR1001 Local: ..."
+    Mantém o antigo e adiciona o novo.
+    """
     first = unit_block.splitlines()[0] if unit_block else ""
     m = re.search(r"^\s*(.*?)\s+\bLocal:\b", first, flags=re.I)
     base = (m.group(1) if m else first).strip()
-    # pega só o que parece unidade "BL I 01"
-    mm = re.search(r"\bBL\s+[A-ZIVX]+\s+\d{1,3}\b", base.upper())
-    if mm:
-        return normalize_unidade(mm.group(0))
+
+    # tenta achar explicitamente o padrão antigo dentro do base
+    mm_old = re.search(r"\bBL\s+[A-ZIVX]+\s+\d{1,3}\b", base.upper())
+    if mm_old:
+        return normalize_unidade(mm_old.group(0))
+
+    # tenta achar padrão novo (AR1001 etc) dentro do base
+    mm_new = re.search(r"\b[A-Z]{1,10}\s*\d{1,6}\b", base.upper())
+    if mm_new:
+        return normalize_unidade(mm_new.group(0))
+
     return normalize_unidade(base)
 
 def split_people(unit_block: str):
@@ -108,9 +150,13 @@ def split_people(unit_block: str):
 TP_RE = re.compile(r"(?im)\bTp\.?\s*Pessoa:\s*([^\n\r]+)")
 NAME_LINE_RE = re.compile(r"(?im)^\s*Pessoa:\s*(.+?)\s*$")
 
-# Só captura telefones de campos específicos (evita RG, códigos etc.)
+# Só captura telefones de campos específicos (antigo)
 PHONE_FIELDS_RE = re.compile(r"(?im)^\s*(Telefone|Celular|Contato|Whats|Comercial)\s*:\s*(.*?)\s*$")
 EMAIL_FIELD_RE  = re.compile(r"(?im)\bEmail\s*:\s*([^\s]+)")
+
+# ✅ NOVO: captura valores mesmo quando os campos vêm encadeados na mesma linha
+# ex: "Telefone: Comercial: Celular: 99 9840... Whats:"
+PHONE_KV_INLINE_RE = re.compile(r"(?im)\b(Contato|Telefone|Celular|Whats|Comercial)\s*:\s*([^:\n\r]*)")
 
 def parse_person(pb: str):
     # nome
@@ -133,22 +179,33 @@ def parse_person(pb: str):
         emails = EMAIL_RE.findall(pb)
     emails = uniq([e.lower() for e in emails])
 
-    # phones apenas dos campos
     phones = []
+
+    # --- método antigo (preservado): pega linhas do tipo "Telefone: 98 9...."
     for _label, val in PHONE_FIELDS_RE.findall(pb):
-        # pode vir: "(98)98839-0999", "98 99224 1322", "85991506179", "99104 - 2929"
         chunks = re.split(r"[;,/]| e |\s{2,}", val)
         for c in chunks:
             p = normalize_phone(c)
             if p:
                 phones.append(p)
+
+    # --- método novo (adicionado): pega campos encadeados na mesma linha
+    for _label, val in PHONE_KV_INLINE_RE.findall(pb):
+        val = (val or "").strip()
+        if not val:
+            continue
+        chunks = re.split(r"[;,/]| e |\s{2,}", val)
+        for c in chunks:
+            p = normalize_phone(c)
+            if p:
+                phones.append(p)
+
     phones = uniq(phones)
 
     return nome, tipo, phones, emails
 
 def is_owner(tipo: str) -> bool:
     t = (tipo or "").upper()
-    # aceita Proprietário e Proprietário/Ocupant
     return "PROPRIET" in t
 
 def parse_contatos_unidades(text: str):
@@ -162,7 +219,7 @@ def parse_contatos_unidades(text: str):
         for pb in split_people(ub):
             nome, tipo, phones, emails = parse_person(pb)
 
-            # aqui: só Proprietário (igual tua regra padrão)
+            # regra padrão: só Proprietário
             if not is_owner(tipo):
                 continue
 
@@ -197,13 +254,13 @@ def main():
         }, ensure_ascii=False))
         sys.exit(0)
 
-    cont_layout = "BR_UNIDADES_EXPANDIDAS"
-    inad_layout = "BR_LISTA_DEBITOS"
+    # (opcional) labels: agora pode ser um dos dois layouts
+    cont_layout = "BR_UNIDADES_EXPANDIDAS_AUTO"
+    inad_layout = "BR_LISTA_DEBITOS_AUTO"
 
     contatos = parse_contatos_unidades(cont_text)
     inad_set = parse_inadimplentes_debitos(deb_text)
 
-    # match por unidade
     data = [c for c in contatos if normalize_unidade(c.get("unidade")) in inad_set]
 
     out = {
