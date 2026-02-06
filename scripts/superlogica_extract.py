@@ -328,11 +328,33 @@ def parse_contatos_casa_lines(text: str) -> List[Dict]:
     t = t.replace("\u00A0", " ")
     t = re.sub(r"[ \t]+", " ", t)
 
-    lines = [norm_space(x) for x in t.splitlines()]
+    lines = [norm_space(x) for x in t.splitlines() if norm_space(x)]
     out = []
     cur = None
 
     re_start = re.compile(r"^\s*CASA\s*0*(\d+)\b\s*(.*)$", re.I)
+
+    def is_probably_name(s: str) -> bool:
+        up = (s or "").upper().strip()
+        if not up:
+            return False
+        # coisas que não são nome
+        if up in ("PROPRIETÁRIO", "PROPRIETARIO", "INQUILINO", "SÍNDICO", "SINDICO"):
+            return False
+        if "CONTATOS DAS UNIDADES" in up or "NOME/TELEFONE" in up or up.startswith("UNIDADE"):
+            return False
+        if up.startswith("STATUS DA UNIDADE"):
+            return False
+        if up.startswith("TOTAL DE CONTATOS"):
+            return False
+        # se é só número/CPF
+        if re.fullmatch(r"\d{8,14}", re.sub(r"\D", "", s or "")):
+            return False
+        # se a linha tem telefone/email, não é nome
+        if extract_phones(s) or extract_emails(s):
+            return False
+        # precisa ter letras
+        return bool(re.search(r"[A-ZÀ-Ü]", up))
 
     def flush():
         nonlocal cur
@@ -344,9 +366,6 @@ def parse_contatos_casa_lines(text: str) -> List[Dict]:
         cur = None
 
     for line in lines:
-        if not line:
-            continue
-
         up = line.upper().strip()
 
         if up.startswith("TOTAL DE CONTATOS"):
@@ -358,15 +377,20 @@ def parse_contatos_casa_lines(text: str) -> List[Dict]:
         if m:
             flush()
             casa_n = int(m.group(1))
-            nome_raw = (m.group(2) or "").strip()
-            nome_raw = re.sub(r"\bPROPRIET[ÁA]RIO\b", "", nome_raw, flags=re.I).strip()
+            rest = (m.group(2) or "").strip()
+
+            # Se vier "CASA 005 - Fulano", já captura
+            rest = rest.lstrip("-–— ").strip()
+            rest = re.sub(r"\bPROPRIET[ÁA]RIO\b", "", rest, flags=re.I).strip()
 
             cur = {
                 "unidade": normalize_unidade(f"CASA {casa_n}"),
-                "Nome": (nome_raw or "").title(),
+                "Nome": (rest.title() if rest else ""),
                 "Telefone": [],
                 "Email": [],
             }
+
+            # também extrai se tiver algo na mesma linha
             cur["Telefone"].extend(extract_phones(line))
             cur["Email"].extend(extract_emails(line))
             continue
@@ -374,11 +398,29 @@ def parse_contatos_casa_lines(text: str) -> List[Dict]:
         if not cur:
             continue
 
+        # Se ainda não tem nome, tenta pegar a próxima linha como nome
+        if not cur["Nome"] and is_probably_name(line):
+            cur["Nome"] = line.title().strip()
+            continue
+
+        # ignora linhas de tipo de contato
+        if up in ("PROPRIETÁRIO", "PROPRIETARIO", "INQUILINO", "SÍNDICO", "SINDICO"):
+            continue
+
+        # contatos
         cur["Telefone"].extend(extract_phones(line))
         cur["Email"].extend(extract_emails(line))
 
+        # extra: números soltos 8/9 dígitos (sem máscara)
+        for d in re.findall(r"\b\d{8,9}\b", line):
+            if len(d) == 9 and d.startswith("9"):
+                cur["Telefone"].append(d)
+            elif len(d) == 8 and d[0] in "2345":
+                cur["Telefone"].append(d)
+
     flush()
     return out
+
 
 def parse_inad_apbl_sem_rotulo(text: str) -> Set[str]:
     t = force_breaks_apbl_sem_rotulo(text).upper()
